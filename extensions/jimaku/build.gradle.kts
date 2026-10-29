@@ -12,6 +12,10 @@ android {
     defaultConfig {
         // The bundle's version, for the User-Agent of gateway reads. Releases set it in gradle.properties.
         buildConfigField("String", "BUNDLE_VERSION", "\"${project.version}\"")
+
+        // A build that throws in the playback time listener, to check fault containment:
+        // ./gradlew buildAndroid -Pjimaku.faultTest=true
+        buildConfigField("boolean", "FAULT_TEST", (findProperty("jimaku.faultTest") == "true").toString())
     }
 
     testOptions {
@@ -21,6 +25,9 @@ android {
 }
 
 dependencies {
+    // Signatures of the Morphe Patches classes Jimaku calls; the app has the real ones.
+    compileOnly(project(":stub"))
+
     testImplementation(libs.junit)
     testImplementation(libs.org.json)
 }

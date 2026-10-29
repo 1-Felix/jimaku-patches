@@ -28,3 +28,6 @@ settings {
         proguardFiles(settingsDir.resolve("extensions/proguard-rules.pro").toString())
     }
 }
+
+// Signatures of the Morphe Patches classes the extension calls; compile only, never shipped.
+include(":stub")

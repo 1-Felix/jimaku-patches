@@ -21,7 +21,7 @@ import app.jimaku.extension.subtitles.Line;
  * request names the video and the language, and carries no cookie, no credentials and no account
  * data. Calls block; run them off the main thread.
  */
-public final class Gateway {
+public final class Gateway implements Reads {
     public static final String ORIGIN = "https://api.jimaku.app";
     private static final int TIMEOUT_MILLIS = 15_000;
     private static final Pattern VIDEO_ID = Pattern.compile("[A-Za-z0-9_-]{11}");
@@ -50,6 +50,7 @@ public final class Gateway {
     }
 
     /** What the shared cache holds for {@code video}, or null when it holds nothing. */
+    @Override
     public Lookup lookup(String video, Cancellation cancellation) throws GatewayException {
         if (!isVideoId(video)) throw new GatewayException("bad_video");
         HttpGet.Response response = send("/videos/" + video, cancellation);
@@ -72,6 +73,7 @@ public final class Gateway {
     }
 
     /** The lines of {@code video}'s subtitles in {@code lang}. */
+    @Override
     public List<Line> document(String video, String lang, Cancellation cancellation) throws GatewayException {
         if (!isVideoId(video)) throw new GatewayException("bad_video");
         if (!Languages.isLanguageCode(lang)) throw new GatewayException("bad_language");

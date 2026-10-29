@@ -15,7 +15,7 @@ The Jimaku patch adds only Jimaku. Apply it together with Morphe's YouTube patch
 1. In Morphe Manager, add this source with the button below, or add the repository link by hand: https://github.com/1-Felix/jimaku-patches
 2. Turn on **Pre-release patches** for this source. Until the first stable release, every release is a pre-release.
 3. Turn on **Expert mode** in Manager's settings. Simple mode patches each app from one source only.
-4. Patch YouTube with both sources selected: Morphe's patches and Jimaku. Use a YouTube version listed below.
+4. Patch YouTube with both sources selected: Morphe's patches and Jimaku. Use a YouTube version listed below, and keep Morphe's default patches on: Jimaku attaches to the player through them. If they are missing, patching stops with a message saying so.
 
 <a href="https://morphe.software/add-source?github=1-Felix/jimaku-patches">
   <img src=".github/assets/add-to-morphe.svg" alt="Add to Morphe" height="48">
