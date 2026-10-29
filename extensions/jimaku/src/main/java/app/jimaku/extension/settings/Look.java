@@ -40,7 +40,11 @@ public final class Look {
     private float positionY;
 
     public Look(Context context) {
-        prefs = context.getSharedPreferences("jimaku", Context.MODE_PRIVATE);
+        this(context.getSharedPreferences("jimaku", Context.MODE_PRIVATE));
+    }
+
+    Look(SharedPreferences prefs) {
+        this.prefs = prefs;
         on = prefs.getBoolean("on", false);
         dual = prefs.getBoolean("dual", false);
         translation = clamp(prefs.getInt("translation", SIZE_DEFAULT), SIZE_MIN, SIZE_MAX);

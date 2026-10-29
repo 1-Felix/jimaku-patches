@@ -134,6 +134,7 @@ public final class VideoSession {
                 found = reads.lookup(videoId, cancellation);
                 if (found == null) JimakuLog.info("Not cached: " + videoId);
                 else if (show && found.cachedLanguages().contains(preferred)) {
+                    JimakuLog.info("Reading " + preferred + " for " + videoId);
                     lines = reads.document(videoId, preferred, cancellation);
                 }
             } catch (GatewayException e) {
@@ -173,6 +174,7 @@ public final class VideoSession {
         background.execute(() -> {
             List<Line> lines = null;
             try {
+                JimakuLog.info("Reading " + lang + " for " + videoId);
                 lines = reads.document(videoId, lang, cancellation);
             } catch (GatewayException e) {
                 if (!"cancelled".equals(e.code)) JimakuLog.warn("Gateway read for " + videoId + " failed: " + e.code);
@@ -215,6 +217,7 @@ public final class VideoSession {
         background.execute(() -> {
             List<Line> lines = null;
             try {
+                JimakuLog.info("Reading the original for " + videoId);
                 lines = reads.original(videoId, cancellation);
             } catch (GatewayException e) {
                 if (!"cancelled".equals(e.code)) JimakuLog.warn("Gateway read of " + videoId + "'s original failed: " + e.code);
