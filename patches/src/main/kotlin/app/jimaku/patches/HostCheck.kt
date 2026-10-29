@@ -22,6 +22,7 @@ internal val REQUIRED_HOST_METHODS: Map<String, Set<String>> = mapOf(
     ),
     "Lapp/morphe/extension/youtube/patches/VideoInformation;" to setOf(
         "getVideoTime()J",
+        "getVideoLength()J",
         "lastVideoIdIsShort()Z",
     ),
     "Lapp/morphe/extension/youtube/shared/PlayerType;" to setOf(

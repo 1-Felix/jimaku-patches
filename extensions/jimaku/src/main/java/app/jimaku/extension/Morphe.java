@@ -30,6 +30,11 @@ final class Morphe {
         return VideoInformation.getVideoTime();
     }
 
+    /** The length of the video in front in milliseconds, or 0 before it is known. */
+    static long videoLengthMillis() {
+        return VideoInformation.getVideoLength();
+    }
+
     static boolean lastVideoIsShort() {
         return VideoInformation.lastVideoIdIsShort();
     }

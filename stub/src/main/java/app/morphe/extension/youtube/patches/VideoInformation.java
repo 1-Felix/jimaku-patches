@@ -10,6 +10,11 @@ public final class VideoInformation {
         throw new UnsupportedOperationException();
     }
 
+    /** The length of the video in front in milliseconds, or 0 before it is known. */
+    public static long getVideoLength() {
+        throw new UnsupportedOperationException();
+    }
+
     public static boolean lastVideoIdIsShort() {
         throw new UnsupportedOperationException();
     }

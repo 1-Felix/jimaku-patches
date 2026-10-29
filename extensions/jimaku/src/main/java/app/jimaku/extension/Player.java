@@ -23,32 +23,36 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import java.lang.ref.WeakReference;
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 
 import android.content.ContextWrapper;
 import android.widget.LinearLayout;
 
+import app.jimaku.extension.gateway.Cancellation;
 import app.jimaku.extension.gateway.Gateway;
+import app.jimaku.extension.gateway.GatewayException;
 import app.jimaku.extension.gateway.Requests;
-import app.jimaku.extension.gateway.Lookup;
 import app.jimaku.extension.jobs.Glide;
 import app.jimaku.extension.menu.Menu;
 import app.jimaku.extension.menu.MenuInput;
-import app.jimaku.extension.menu.MenuModel;
 import app.jimaku.extension.menu.Subtitle;
-import app.jimaku.extension.menu.Version;
 import app.jimaku.extension.overlay.Message;
 import app.jimaku.extension.overlay.PlayerButton;
 import app.jimaku.extension.overlay.SubtitleView;
 import app.jimaku.extension.session.VideoSession;
 import app.jimaku.extension.settings.KeptInstall;
+import app.jimaku.extension.settings.KeptPending;
+import app.jimaku.extension.settings.KeptResults;
 import app.jimaku.extension.settings.Look;
 import app.jimaku.extension.shared.Samples;
-import app.jimaku.extension.shared.Wording;
 import app.jimaku.extension.subtitles.Line;
 import app.jimaku.extension.subtitles.LineCursor;
+import app.jimaku.extension.youtube.CaptionTrack;
 import app.jimaku.extension.youtube.TrackInfo;
 import app.jimaku.extension.youtube.YouTube;
 
@@ -60,7 +64,7 @@ import app.jimaku.extension.youtube.YouTube;
  * the video is paused, a check a few times a second catches seeks and the controls. While they
  * can't show, nothing runs until one of Morphe's events or a layout change says otherwise.
  */
-final class Player implements VideoSession.Display, Menu.Host {
+final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host {
     private static final String OVERLAYS_LAYOUT =
             "com.google.android.apps.youtube.app.common.player.overlay.YouTubePlayerOverlaysLayout";
     private static final long PAUSED_CHECK_MILLIS = 250;
@@ -114,6 +118,11 @@ final class Player implements VideoSession.Display, Menu.Host {
     private LineCursor cursor;
     private String lang;
     private LineCursor originalCursor;
+    private String originalLang;
+    /** The app's activities between started and stopped: while there are none, the app is in the background. */
+    private final Set<Activity> started = Collections.newSetFromMap(new WeakHashMap<>());
+    /** Whether {@link #update} runs: the session's changes it causes need no second pass. */
+    private boolean updating;
     /** While Settings is open, the captions last drawn stay through the gap before the next. */
     private String heldText;
     private String heldOriginal;
@@ -138,10 +147,27 @@ final class Player implements VideoSession.Display, Menu.Host {
     private Look look;
     private Menu menu;
     private PlayerButton button;
-    /** The job the button's bar shows, kept here since each player activity gets a button of its own. */
-    private boolean working;
-    private Glide workGlide;
-    private boolean workFailed;
+    /** In a preview build, the bar a preview state shows in place of the session's. */
+    private boolean previewing;
+    private boolean previewWorking;
+    private Glide previewGlide;
+    private boolean previewFailed;
+    private final Preview.Work previewWork = new Preview.Work() {
+        @Override
+        public void set(boolean working, Glide glide, boolean failed) {
+            previewing = true;
+            previewWorking = working;
+            previewGlide = glide;
+            previewFailed = failed;
+            updateButton();
+        }
+
+        @Override
+        public void off() {
+            previewing = false;
+            updateButton();
+        }
+    };
     private WeakReference<ViewGroup> topBar = new WeakReference<>(null);
     private boolean topBarMissingLogged;
 
@@ -156,21 +182,96 @@ final class Player implements VideoSession.Display, Menu.Host {
     Player() {
         // An error a request throws ends its thread, never the app; the pool starts another.
         ExecutorService requests = Requests.pool((dead, fault) -> JimakuLog.fault("requests thread", fault));
-        session = new VideoSession(new Gateway(KeptInstall.of(Morphe::context)), this::tracks, requests,
-                answer -> main.post(() -> Guard.run("gateway answer", answer)), this);
+        Gateway gateway = new Gateway(KeptInstall.of(Morphe::context));
+        VideoSession.Timer timer = new VideoSession.Timer() {
+            @Override
+            public long now() {
+                return System.currentTimeMillis();
+            }
+
+            @Override
+            public Runnable after(long millis, Runnable run) {
+                Runnable guarded = () -> Guard.run("job check", run);
+                main.postDelayed(guarded, millis);
+                return () -> main.removeCallbacks(guarded);
+            }
+        };
+        session = new VideoSession(gateway, gateway, new Tracks(), KeptResults.of(Morphe::context), KeptPending.of(Morphe::context), this,
+                new MessageToast(), timer, requests, answer -> main.post(() -> Guard.run("gateway answer", answer)), this);
     }
 
-    /** YouTube's caption tracks for {@code video}, asked as the installed app, once there is a context to say which app. */
-    private TrackInfo tracks(String video, app.jimaku.extension.gateway.Cancellation cancellation)
-            throws app.jimaku.extension.gateway.GatewayException {
-        YouTube reader = youtube;
-        if (reader == null) {
-            Context context = Morphe.context();
-            if (context == null) return null;
-            reader = YouTube.of(context);
-            youtube = reader;
+    /** YouTube's caption tracks and their lines, asked as the installed app, once there is a context to say which app. */
+    private final class Tracks implements VideoSession.Tracks {
+        @Override
+        public TrackInfo tracks(String video, Cancellation cancellation) throws GatewayException {
+            YouTube reader = reader();
+            return reader != null ? reader.tracks(video, cancellation) : null;
         }
-        return reader.tracks(video, cancellation);
+
+        @Override
+        public String captions(TrackInfo info, CaptionTrack track, Cancellation cancellation) throws GatewayException {
+            YouTube reader = reader();
+            if (reader == null) throw new GatewayException("no_captions");
+            return reader.captions(info, track, cancellation);
+        }
+
+        private YouTube reader() {
+            YouTube reader = youtube;
+            if (reader == null) {
+                Context context = Morphe.context();
+                if (context == null) return null;
+                reader = YouTube.of(context);
+                youtube = reader;
+            }
+            return reader;
+        }
+    }
+
+    /** The session's message, as the player's {@link Message}; while there is none, nothing shows, and a new one hears the job again. */
+    private final class MessageToast implements VideoSession.Toast {
+        @Override
+        public void info(String words) {
+            if (message != null) message.info(words);
+        }
+
+        @Override
+        public void hold(String words, VideoSession.Action forward, VideoSession.Action second) {
+            if (message != null) message.hold(words, action(forward), action(second));
+        }
+
+        @Override
+        public void progress(String words, boolean announce, VideoSession.Action stop, String strong, Glide glide) {
+            if (message != null) message.progress(words, announce, action(stop), strong, glide);
+        }
+
+        @Override
+        public void ask(String question, Runnable onYes) {
+            if (message != null) message.ask(question, onYes);
+        }
+
+        @Override
+        public void reask(String question) {
+            if (message != null) message.reask(question);
+        }
+
+        @Override
+        public void hide() {
+            if (message != null) message.hide();
+        }
+
+        @Override
+        public boolean showingProgress() {
+            return message != null && message.showingProgress();
+        }
+
+        @Override
+        public boolean asking() {
+            return message != null && message.asking();
+        }
+
+        private Message.Action action(VideoSession.Action action) {
+            return action == null ? null : new Message.Action(action.label, action.run);
+        }
     }
 
     /** The settings, read once there is a context to read them from. */
@@ -189,6 +290,8 @@ final class Player implements VideoSession.Display, Menu.Host {
 
     private void onLookChange() {
         if (menu != null) menu.refresh();
+        // Original caption switched off leaves the original; on, it is read.
+        session.originalChanged();
         update();
     }
 
@@ -198,19 +301,42 @@ final class Player implements VideoSession.Display, Menu.Host {
     }
 
     @Override
+    public boolean on() {
+        Look settings = look();
+        return settings != null && settings.on();
+    }
+
+    @Override
+    public void setOn(boolean on) {
+        Look settings = look();
+        if (settings != null && settings.on() != on) settings.setOn(on);
+    }
+
+    @Override
+    public boolean dual() {
+        Look settings = look();
+        return settings != null && settings.dual();
+    }
+
+    @Override
+    public Double mediaSeconds() {
+        long millis = Morphe.videoLengthMillis();
+        return millis > 0 ? millis / 1000.0 : null;
+    }
+
+    @Override
     public String video() {
         return session.video();
     }
 
     @Override
     public MenuInput input() {
-        return session.input(preferred(), Locale.getDefault());
+        return session.input();
     }
 
     @Override
     public void show(Subtitle subtitle) {
-        if (subtitle.version == Version.PREMIUM) session.choose(subtitle.lang);
-        else JimakuLog.info("Showing " + subtitle + " comes with the jobs");
+        session.choose(subtitle);
     }
 
     @Override
@@ -220,23 +346,17 @@ final class Player implements VideoSession.Display, Menu.Host {
 
     @Override
     public void start(Subtitle subtitle) {
-        JimakuLog.info("Making " + subtitle + " comes with the jobs");
+        session.generate(subtitle);
     }
 
     @Override
     public void stop(Subtitle subtitle) {
-        JimakuLog.info("Stopping " + subtitle + " comes with the jobs");
+        session.stop(subtitle);
     }
 
     @Override
     public void busy() {
-        if (message != null) message.hold(Wording.t(Wording.FAIL_VIDEO_BUSY), null, null);
-    }
-
-    @Override
-    public void tracked(String video) {
-        if (menu != null) menu.refresh();
-        update();
+        session.busy();
     }
 
     @Override
@@ -322,19 +442,18 @@ final class Player implements VideoSession.Display, Menu.Host {
 
     @Override
     public void originalWanted() {
-        session.askOriginal();
+        session.originalChanged();
     }
 
-    /** Whether Original caption shows an original on this video, by the viewer's switch and the menu's rules. */
-    private boolean originalShown() {
-        Look settings = look();
-        return settings != null && settings.dual()
-                && MenuModel.originalAvailable(session.lookup(), preferred(), session.wanted());
-    }
-
-    /** Keeps the resumed activity, to find the player in its views before the controls first show. */
+    /**
+     * Keeps the resumed activity, to find the player in its views before the controls first show, and
+     * whether the app is in the foreground, where alone a job is checked.
+     */
     void watchActivities(Context context) {
-        if (context instanceof Activity current) activity = new WeakReference<>(current);
+        if (context instanceof Activity current) {
+            activity = new WeakReference<>(current);
+            started.add(current);
+        }
         Context app = context != null ? context.getApplicationContext() : null;
         if (!(app instanceof Application application)) {
             JimakuLog.warn("No application to follow activities in");
@@ -354,7 +473,11 @@ final class Player implements VideoSession.Display, Menu.Host {
             }
 
             @Override
-            public void onActivityStarted(Activity started) {
+            public void onActivityStarted(Activity shown) {
+                Guard.run("activity started", () -> {
+                    started.add(shown);
+                    session.setForeground(true);
+                });
             }
 
             @Override
@@ -363,6 +486,10 @@ final class Player implements VideoSession.Display, Menu.Host {
 
             @Override
             public void onActivityStopped(Activity stopped) {
+                Guard.run("activity stopped", () -> {
+                    started.remove(stopped);
+                    if (started.isEmpty()) session.setForeground(false);
+                });
             }
 
             @Override
@@ -434,34 +561,33 @@ final class Player implements VideoSession.Display, Menu.Host {
     }
 
     @Override
-    public void lookedUp(String video, Lookup lookup) {
-        if (originalShown()) session.askOriginal();
+    public void changed() {
         if (menu != null) menu.refresh();
-        update();
+        updateButton();
+        if (!updating) update();
     }
 
     @Override
-    public void show(String video, String lang, List<Line> lines) {
+    public void lines(String lang, List<Line> lines) {
         cursor = lines == null ? null : new LineCursor(lines);
-        this.lang = lang;
-        // Another language on screen can leave the original no longer repeating it.
-        if (originalShown()) session.askOriginal();
-        if (menu != null) menu.refresh();
-        update();
+        this.lang = lines == null ? null : lang;
+        if (!updating) update();
     }
 
     @Override
-    public void original(String video, List<Line> lines) {
-        originalCursor = new LineCursor(lines);
-        update();
+    public void original(String lang, List<Line> lines) {
+        originalCursor = lines == null ? null : new LineCursor(lines);
+        originalLang = lines == null ? null : lang;
+        if (!updating) update();
     }
 
-    /** Called from inside {@link VideoSession#open}, so it only stops; it must not look up again. */
+    /** Called from inside {@link VideoSession#open}, so it only stops; it must not open the video again. */
     @Override
     public void clear() {
         cursor = null;
         lang = null;
         originalCursor = null;
+        originalLang = null;
         heldText = null;
         heldOriginal = null;
         if (view != null) {
@@ -470,7 +596,7 @@ final class Player implements VideoSession.Display, Menu.Host {
         }
         if (menu != null) menu.refresh();
         updateButton();
-        schedule(false, false);
+        if (!updating) schedule(false, false);
     }
 
     private void onLayoutChange() {
@@ -521,37 +647,45 @@ final class Player implements VideoSession.Display, Menu.Host {
         return Math.round(value * overlay.getResources().getDisplayMetrics().density);
     }
 
-    /** Looks up the video if it is new in the watch player, then draws or stops. */
+    /** Opens the video in the session if it is new in the watch player, then draws or stops. */
     private void update() {
-        String type = Morphe.playerType();
-        boolean isShort = Morphe.lastVideoIsShort();
+        if (updating) return;
+        updating = true;
+        try {
+            String type = Morphe.playerType();
+            boolean isShort = Morphe.lastVideoIsShort();
 
-        Look settings = look();
-        if (videoId != null && !isShort && Morphe.isWatchPlayer(type) && settings != null
-                && !videoId.equals(faultedVideo) && !videoId.equals(session.video())) {
-            session.open(videoId, preferred(), settings.on());
+            Look settings = look();
+            if (videoId != null && !isShort && Morphe.isWatchPlayer(type) && settings != null
+                    && !videoId.equals(faultedVideo) && !videoId.equals(session.video())) {
+                session.open(videoId);
+            }
+
+            boolean original = originalCursor != null;
+            boolean fullSize = settings != null && !isShort && Morphe.showsSubtitles(type);
+            boolean mayShow = fullSize && (cursor != null || original || editing);
+            // The button is wanted whether or not subtitles show: after YouTube made its activity anew,
+            // the overlay is found again here, as Morphe doesn't report the new controls.
+            if (fullSize && (view == null || !view.isAttachedToWindow())) findOverlayInActivity();
+            boolean canShow = mayShow && isOnScreen();
+            placeMessage(fullSize);
+            if (preview != null && fullSize) preview.apply(Morphe.context(), message, previewWork);
+            if (canShow) draw();
+            else if (view != null) {
+                view.setText(null, null);
+                view.setOriginal(null, null);
+            }
+
+            boolean playing = isPlaying();
+            schedule(canShow && playing, canShow && !playing);
+        } finally {
+            updating = false;
         }
+    }
 
-        // Asked once per update, as it runs every frame and builds the menu's input each time.
-        boolean originalOn = originalShown();
-        boolean original = originalCursor != null && originalOn;
-        boolean fullSize = settings != null && !isShort && Morphe.showsSubtitles(type);
-        boolean mayShow = fullSize && (cursor != null || original || editing);
-        // The button is wanted whether or not subtitles show: after YouTube made its activity anew,
-        // the overlay is found again here, as Morphe doesn't report the new controls.
-        if (fullSize && (view == null || !view.isAttachedToWindow())) findOverlayInActivity();
-        boolean canShow = mayShow && isOnScreen();
-        placeMessage(fullSize);
-        if (preview != null && fullSize) preview.apply(Morphe.context(), message, this::work);
-        if (canShow) draw(original, originalOn);
-        else if (view != null) {
-            view.setText(null, null);
-            view.setOriginal(null, null);
-        }
-        updateButton(originalOn);
-
-        boolean playing = isPlaying();
-        schedule(canShow && playing, canShow && !playing);
+    /** Two lines that read the same, however their rows are broken. */
+    private static boolean sameText(String a, String b) {
+        return a.replaceAll("\\s+", " ").trim().equals(b.replaceAll("\\s+", " ").trim());
     }
 
     private boolean isOnScreen() {
@@ -560,18 +694,17 @@ final class Player implements VideoSession.Display, Menu.Host {
                 && view.getWidth() > 0 && view.getHeight() > 0;
     }
 
-    private void draw(boolean showOriginal, boolean originalOn) {
+    private void draw() {
         Look settings = look();
         // A later timing shows each caption that much later: on screen is the caption of that much earlier.
         double t = Morphe.videoTimeMillis() / 1000.0 - settings.timing(session.video()) / 10.0;
         Line line = cursor != null ? cursor.at(t) : null;
-        Line originalLine = showOriginal ? originalCursor.at(t) : null;
+        Line originalLine = originalCursor != null ? originalCursor.at(t) : null;
         String text = line == null ? null : line.text;
         String originalText = originalLine == null ? null : originalLine.text;
         // A line of the original that reads as the one below it would only repeat it.
-        if (originalText != null && originalText.equals(text)) originalText = null;
-        Lookup lookup = session.lookup();
-        String originalLang = lookup != null ? lookup.original : null;
+        if (originalText != null && text != null && sameText(originalText, text)) originalText = null;
+        String originalLang = this.originalLang;
         String textLang = lang;
 
         if (editing) {
@@ -588,8 +721,8 @@ final class Player implements VideoSession.Display, Menu.Host {
                 heldOriginal = null;
                 textLang = preferred();
                 text = Samples.line(textLang);
-                originalText = originalLang != null && !originalLang.equals(textLang) && originalOn
-                        ? Samples.line(originalLang) : null;
+                originalLang = settings.dual() ? session.originalLanguage() : null;
+                originalText = originalLang != null && !originalLang.equals(textLang) ? Samples.line(originalLang) : null;
             } else {
                 heldText = text;
                 heldOriginal = originalText;
@@ -661,36 +794,17 @@ final class Player implements VideoSession.Display, Menu.Host {
         JimakuLog.info("Button placed in the top bar" + (cc != null ? ", beside CC" : ""));
     }
 
-    /** The button's fill and name, from what shows, as the extension's describeState() has them. */
+    /**
+     * The button's fill, name and bar, from the session, as the extension's describeState() has them:
+     * a job filling along its glide, or sweeping without one, and "!" where something failed.
+     */
     private void updateButton() {
-        if (button != null) updateButton(originalShown());
-    }
-
-    private void updateButton(boolean originalOn) {
         if (button == null) return;
-        boolean alone = cursor == null && originalCursor != null && originalOn;
-        Lookup lookup = session.lookup();
-        String wanted = session.wanted();
-        String language = lang != null ? lang : wanted != null ? wanted
-                : alone && lookup != null ? lookup.original : preferred();
-        boolean on = cursor != null || alone;
-        String english = Languages.englishName(language);
-        String name;
-        if (on) name = Wording.t(Wording.PLAYER_ON, english);
-        else if (lookup != null && lookup.cachedLanguages().contains(language)) name = Wording.t(Wording.PLAYER_AVAILABLE, english);
-        else if (session.lookedUp()) name = Wording.t(Wording.PLAYER_MISSING, english);
-        else name = Wording.t(Wording.PLAYER_NAME);
-        button.setOn(on);
-        button.setName(name);
-        button.setWork(working, workGlide, workFailed);
-    }
-
-    /** What the button's bar shows: a job filling along {@code glide}, or sweeping without one, or "!" where a start failed. */
-    void work(boolean working, Glide glide, boolean failed) {
-        this.working = working;
-        workGlide = glide;
-        workFailed = failed;
-        if (button != null) button.setWork(working, glide, failed);
+        VideoSession.Control state = session.control();
+        button.setOn(state.on);
+        button.setName(state.name());
+        if (previewing) button.setWork(previewWorking, previewGlide, previewFailed);
+        else button.setWork(state.working, state.glide, state.error && !state.working);
     }
 
     private void openMenu() {
@@ -703,6 +817,7 @@ final class Player implements VideoSession.Display, Menu.Host {
             maxTop = otherLocation[1] + overlay.getHeight();
         }
         menu.open(current, maxTop);
+        session.menuOpened();
     }
 
     private static Activity activityOf(Context context) {
@@ -767,7 +882,8 @@ final class Player implements VideoSession.Display, Menu.Host {
             if (message.getParent() instanceof ViewGroup oldParent) oldParent.removeView(message);
             message = null;
         }
-        if (message == null) {
+        boolean made = message == null;
+        if (made) {
             message = new Message(found.getContext());
             message.setOnDismiss(() -> Guard.run("message closed", () -> {
                 if (button != null && button.isShown()) button.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
@@ -782,6 +898,8 @@ final class Player implements VideoSession.Display, Menu.Host {
         controlsRowSearched = false;
         JimakuLog.info("Attached to the player overlay");
         placeButton();
+        // A new player activity has a new message: the job waited on shows in it again.
+        if (made) session.messageReplaced();
     }
 
     /** The part of the view the video covers: the video surface cut to the view, or the whole view. */

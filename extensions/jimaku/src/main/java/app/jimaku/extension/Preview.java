@@ -28,6 +28,9 @@ final class Preview {
     /** What the button's bar shows, as the player keeps it for each button it makes. */
     interface Work {
         void set(boolean working, Glide glide, boolean failed);
+
+        /** No preview state: the button shows the session's again. */
+        void off();
     }
 
     private String applied;
@@ -87,7 +90,7 @@ final class Preview {
             }
             default -> {
                 message.hide();
-                button.set(false, null, false);
+                button.off();
             }
         }
     }
