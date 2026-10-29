@@ -1,3 +1,9 @@
+## [1.0.0-dev.5](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.4...v1.0.0-dev.5) (2026-10-29)
+
+### 🐛 Bug Fixes
+
+* a fault in a gateway answer, a menu press or the reads thread no longer crashes YouTube, and Original caption loads when another language makes it available ([8d6999f](https://github.com/1-Felix/jimaku-patches/commit/8d6999f992679a54f3fa308ea1961d19e31db875))
+
 ## [1.0.0-dev.4](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.3...v1.0.0-dev.4) (2026-10-29)
 
 ### 🐛 Bug Fixes
