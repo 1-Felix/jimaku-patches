@@ -1,8 +1,8 @@
 {
-  "created_at": "2026-10-29T14:11:42",
-  "description": "## [1.0.0-dev.2](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.1...v1.0.0-dev.2) (2026-10-29)\n\n### 🐛 Bug Fixes\n\n* Subtitles at the size of YouTube's own captions, in portrait and fullscreen ([c68109d](https://github.com/1-Felix/jimaku-patches/commit/c68109d94df1827b6668375ee1dd839438db3fb6))",
-  "download_url": "https://github.com/1-Felix/jimaku-patches/releases/download/v1.0.0-dev.2/patches-1.0.0-dev.2.mpp",
+  "created_at": "2026-10-29T14:56:59",
+  "description": "## [1.0.0-dev.3](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.2...v1.0.0-dev.3) (2026-10-29)\n\n### ✨ New Features\n\n* YouTube 21.20.405 declared, checked on a phone with Morphe's patches ([91d8c06](https://github.com/1-Felix/jimaku-patches/commit/91d8c06e5ae2d1a47d13605153da74a6d17356ac))",
+  "download_url": "https://github.com/1-Felix/jimaku-patches/releases/download/v1.0.0-dev.3/patches-1.0.0-dev.3.mpp",
   "signature_download_url": "",
-  "version": "1.0.0-dev.2",
+  "version": "1.0.0-dev.3",
   "public_key": "8kbjQ+ivbhSVkAujdoazWLAP5ND0OI4UjKlZJuAt8z8="
 }

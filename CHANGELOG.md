@@ -1,3 +1,9 @@
+## [1.0.0-dev.3](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.2...v1.0.0-dev.3) (2026-10-29)
+
+### ✨ New Features
+
+* YouTube 21.20.405 declared, checked on a phone with Morphe's patches ([91d8c06](https://github.com/1-Felix/jimaku-patches/commit/91d8c06e5ae2d1a47d13605153da74a6d17356ac))
+
 ## [1.0.0-dev.2](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.1...v1.0.0-dev.2) (2026-10-29)
 
 ### 🐛 Bug Fixes
