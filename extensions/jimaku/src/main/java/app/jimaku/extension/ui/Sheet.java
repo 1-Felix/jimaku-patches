@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.res.Resources;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -20,7 +21,9 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.os.Bundle;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -90,7 +93,11 @@ public final class Sheet {
         ground.setCornerRadius(theme.dp(16));
         panel.setBackground(ground);
         panel.setClipToOutline(true);
-        panel.addView(new Handle(activity), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, theme.dp(12)));
+        // TalkBack announces the sheet and its handle in YouTube's words, in the app's language.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            panel.setAccessibilityPaneTitle(hostString("bottom_sheet_accessibility_pane_title"));
+        }
+        panel.addView(new Handle(activity, hostString("bottomsheet_drag_handle_content_description")), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, theme.dp(12)));
         panel.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         panel.setPadding(0, 0, 0, theme.dp(8));
 
@@ -253,6 +260,16 @@ public final class Sheet {
     private int panelWidth(int width, boolean landscape) {
         int side = theme.dp(8);
         return landscape ? Math.min(theme.dp(384), width - 2 * side) : width - 2 * side;
+    }
+
+    /** One of YouTube's own strings, or null where this YouTube has none by that name. */
+    private String hostString(String name) {
+        Resources resources = activity.getResources();
+        for (String pkg : new String[] {activity.getPackageName(), "com.google.android.youtube"}) {
+            int id = resources.getIdentifier(name, "string", pkg);
+            if (id != 0) return resources.getString(id);
+        }
+        return null;
     }
 
     public void close() {
@@ -424,15 +441,38 @@ public final class Sheet {
         }
     }
 
-    /** YouTube's drag handle: a 40 × 4 dp bar in a 12 dp band at the sheet's top. */
+    /**
+     * YouTube's drag handle: a 40 × 4 dp bar in a 12 dp band at the sheet's top. For TalkBack it is
+     * YouTube's "Drag handle" button, which closes the sheet; touches still drag it.
+     */
     private final class Handle extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF bar = new RectF();
 
-        Handle(Context context) {
+        Handle(Context context, String name) {
             super(context);
             paint.setColor(theme.handle);
-            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+            if (name == null) {
+                setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+                return;
+            }
+            setContentDescription(name);
+            setAccessibilityDelegate(new AccessibilityDelegate() {
+                @Override
+                public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(host, info);
+                    info.setClassName("android.widget.Button");
+                    info.setClickable(true);
+                    info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
+                }
+
+                @Override
+                public boolean performAccessibilityAction(View host, int action, Bundle arguments) {
+                    if (action != AccessibilityNodeInfo.ACTION_CLICK) return super.performAccessibilityAction(host, action, arguments);
+                    close();
+                    return true;
+                }
+            });
         }
 
         @Override

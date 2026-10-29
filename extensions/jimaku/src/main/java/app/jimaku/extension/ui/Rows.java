@@ -93,6 +93,7 @@ public final class Rows {
         params.setMarginStart(theme.dp(16));
         row.addView(new IconView(context, theme, Icons.NEXT, theme.text, 24), params);
         row.setContentDescription(label);
+        readAsButton(row);
         return row;
     }
 
@@ -234,7 +235,19 @@ public final class Rows {
             button.setBackground(ripple(theme, new ColorDrawable(Color.WHITE)));
             button.setOnClickListener(v -> press.run());
         }
+        readAsButton(button);
         return button;
+    }
+
+    /** TalkBack reads {@code view} as a button, as it reads the rows and buttons of YouTube's sheets. */
+    private static void readAsButton(View view) {
+        view.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName("android.widget.Button");
+            }
+        });
     }
 
     private static LinearLayout.LayoutParams iconParams(Theme theme) {
@@ -315,6 +328,7 @@ public final class Rows {
             this.plus = plus;
             setEnabled(enabled);
             setContentDescription(name);
+            readAsButton(this);
             if (enabled) {
                 setOnClickListener(v -> press.run());
                 setBackground(new RippleDrawable(ColorStateList.valueOf(theme.pressed), null, null));
