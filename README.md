@@ -6,7 +6,7 @@
 
 Jimaku makes subtitles for YouTube videos and translates them into your language. This bundle shows them over the YouTube app's player, in the app's language, for videos Jimaku already has subtitles for.
 
-These are early pre-releases. They show subtitles that are already in Jimaku's cache, with no menu or setting yet. The player menu, making subtitles, and signing in come in later releases.
+These are early pre-releases. They show subtitles that are already in Jimaku's cache, with Jimaku's menu and settings in the player. Making subtitles and signing in come in later releases.
 
 ### How to use these patches
 
