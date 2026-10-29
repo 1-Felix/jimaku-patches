@@ -23,5 +23,8 @@ plugins {
 settings {
     extensions {
         defaultNamespace = "app.jimaku.extension"
+
+        // Must be an absolute path, or the extension projects don't find it.
+        proguardFiles(settingsDir.resolve("extensions/proguard-rules.pro").toString())
     }
 }
