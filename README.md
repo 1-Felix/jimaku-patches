@@ -32,8 +32,23 @@ To find subtitles, the app asks `api.jimaku.app` for the video's ID and your lan
 ## 🩹 Patches list
 
 <!-- PATCHES_START EXPANDED -->
+> **[v1.0.0-dev.1](https://github.com/1-Felix/jimaku-patches/releases/tag/v1.0.0-dev.1)**&nbsp;&nbsp;•&nbsp;&nbsp;`dev`&nbsp;&nbsp;•&nbsp;&nbsp;1 patches total
+<details open>
+<summary>📦 YouTube&nbsp;&nbsp;•&nbsp;&nbsp;1 patch</summary>
+<br>
 
-The list of patches shows here after the first release.
+**Package name:** `com.google.android.youtube`
+
+**🎯 Supported versions:**
+
+| 21.16.256 |
+| :---: |
+
+| 💊&nbsp;Patch | 📜&nbsp;Description | ⚙️&nbsp;Options |
+|----------|----------------|-----------|
+| [Jimaku](#jimaku) | Shows Jimaku subtitles over the player. Apply together with Morphe's YouTube patches. |  |
+
+</details>
 
 <!-- PATCHES_END -->
 
