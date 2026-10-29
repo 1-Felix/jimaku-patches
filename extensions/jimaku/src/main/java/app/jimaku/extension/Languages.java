@@ -155,9 +155,26 @@ public final class Languages {
             }
             return traditional ? "zh-Hant" : "zh-Hans";
         }
+        String code = spokenLanguage(locale);
+        return code != null ? code : "en";
+    }
+
+    /**
+     * The subtitle language a caption track's code such as en-GB, iw or zh-TW is in, or null where
+     * subtitles can't be made in it, as the extension's {@code spokenLanguage}.
+     */
+    public static String spokenLanguage(String code) {
+        String[] parts = code.trim().toLowerCase(Locale.ROOT).split("[-_]");
+        String base = parts.length > 0 ? parts[0] : "";
+        if (base.equals("zh")) {
+            for (int i = 1; i < parts.length; i++) {
+                if (parts[i].equals("hant") || TRADITIONAL_REGIONS.contains(parts[i])) return "zh-Hant";
+            }
+            return "zh-Hans";
+        }
         String alias = ALIASES.get(base);
-        String code = alias != null ? alias : base;
-        return isLanguageCode(code) ? code : "en";
+        String mapped = alias != null ? alias : base;
+        return isLanguageCode(mapped) ? mapped : null;
     }
 
     /** The subtitle language for the app's language, such as its configuration's first locale. */

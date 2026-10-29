@@ -23,13 +23,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * A local HTTP server for the gateway tests. It records each request's line and headers as sent,
  * and answers with what the test set for the path.
  */
-final class TestServer implements Closeable {
-    static final class Request {
-        final String line;
+public final class TestServer implements Closeable {
+    public static final class Request {
+        public final String line;
         /** Header names in lower case, each with every value sent. */
-        final Map<String, List<String>> headers;
+        public final Map<String, List<String>> headers;
         /** The body as sent, read by its Content-Length, as UTF-8. */
-        final String body;
+        public final String body;
 
         Request(String line, Map<String, List<String>> headers, String body) {
             this.line = line;
@@ -37,16 +37,16 @@ final class TestServer implements Closeable {
             this.body = body;
         }
 
-        String method() {
+        public String method() {
             return line.split(" ")[0];
         }
 
         /** The path with its query. */
-        String path() {
+        public String path() {
             return line.split(" ")[1];
         }
 
-        String header(String name) {
+        public String header(String name) {
             List<String> values = headers.get(name);
             return values == null ? null : values.get(0);
         }
@@ -54,7 +54,7 @@ final class TestServer implements Closeable {
 
     static final class Answer {
         final int status;
-        final String body;
+        public final String body;
         final boolean chunked;
         final long delayMillis;
 
@@ -69,43 +69,43 @@ final class TestServer implements Closeable {
     private final ServerSocket server;
     /** Each path's answers in turn; the last one stays. */
     private final Map<String, Deque<Answer>> answers = Collections.synchronizedMap(new LinkedHashMap<>());
-    final List<Request> requests = new CopyOnWriteArrayList<>();
+    public final List<Request> requests = new CopyOnWriteArrayList<>();
 
-    TestServer() throws IOException {
+    public TestServer() throws IOException {
         server = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
         Thread accept = new Thread(this::acceptLoop, "test-server");
         accept.setDaemon(true);
         accept.start();
     }
 
-    String origin() {
+    public String origin() {
         return "http://127.0.0.1:" + server.getLocalPort();
     }
 
     /** Answers {@code path}, with or without a query, from now on. */
-    void answer(String path, int status, String body) {
+    public void answer(String path, int status, String body) {
         answers.put(path, new ArrayDeque<>(List.of(new Answer(status, body, false, 0))));
     }
 
     /** Answers {@code path} first with {@code first}, then with {@code status} and {@code body} from then on. */
-    void answerFirst(String path, int firstStatus, String first, int status, String body) {
+    public void answerFirst(String path, int firstStatus, String first, int status, String body) {
         answers.put(path, new ArrayDeque<>(List.of(new Answer(firstStatus, first, false, 0), new Answer(status, body, false, 0))));
     }
 
-    void answerChunked(String path, int status, String body) {
+    public void answerChunked(String path, int status, String body) {
         answers.put(path, new ArrayDeque<>(List.of(new Answer(status, body, true, 0))));
     }
 
-    void answerLate(String path, long delayMillis) {
+    public void answerLate(String path, long delayMillis) {
         answerLate(path, delayMillis, 200, "{}");
     }
 
-    void answerLate(String path, long delayMillis, int status, String body) {
+    public void answerLate(String path, long delayMillis, int status, String body) {
         answers.put(path, new ArrayDeque<>(List.of(new Answer(status, body, false, delayMillis))));
     }
 
     /** The requests made to {@code path}, with or without a query. */
-    List<Request> requestsTo(String path) {
+    public List<Request> requestsTo(String path) {
         List<Request> found = new ArrayList<>();
         for (Request request : requests) if (withoutQuery(request.path()).equals(path)) found.add(request);
         return found;
