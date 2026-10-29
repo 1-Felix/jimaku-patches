@@ -1,3 +1,9 @@
+## [1.0.0-dev.8](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.7...v1.0.0-dev.8) (2026-10-29)
+
+### ✨ New Features
+
+* sign in on jimaku.app, the Premium switch with your minutes, and Account with the launch offer, buying and signing out ([54a9436](https://github.com/1-Felix/jimaku-patches/commit/54a94360b72d58742c23b40807a94ea43e15e6fa))
+
 ## [1.0.0-dev.7](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.6...v1.0.0-dev.7) (2026-10-29)
 
 ### 🐛 Bug Fixes

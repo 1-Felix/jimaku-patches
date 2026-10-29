@@ -1,8 +1,8 @@
 {
-  "created_at": "2026-10-29T22:19:08",
-  "description": "## [1.0.0-dev.7](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.6...v1.0.0-dev.7) (2026-10-29)\n\n### 🐛 Bug Fixes\n\n* what the viewer presses while a video is looked up stays their choice, and no reading message is left behind ([9fad71d](https://github.com/1-Felix/jimaku-patches/commit/9fad71d62b50798de627160596e80de9a5429b9a))",
-  "download_url": "https://github.com/1-Felix/jimaku-patches/releases/download/v1.0.0-dev.7/patches-1.0.0-dev.7.mpp",
+  "created_at": "2026-10-29T23:21:45",
+  "description": "## [1.0.0-dev.8](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.7...v1.0.0-dev.8) (2026-10-29)\n\n### ✨ New Features\n\n* sign in on jimaku.app, the Premium switch with your minutes, and Account with the launch offer, buying and signing out ([54a9436](https://github.com/1-Felix/jimaku-patches/commit/54a94360b72d58742c23b40807a94ea43e15e6fa))",
+  "download_url": "https://github.com/1-Felix/jimaku-patches/releases/download/v1.0.0-dev.8/patches-1.0.0-dev.8.mpp",
   "signature_download_url": "",
-  "version": "1.0.0-dev.7",
+  "version": "1.0.0-dev.8",
   "public_key": "8kbjQ+ivbhSVkAujdoazWLAP5ND0OI4UjKlZJuAt8z8="
 }
