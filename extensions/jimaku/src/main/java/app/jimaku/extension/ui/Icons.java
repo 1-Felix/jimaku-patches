@@ -31,8 +31,11 @@ public final class Icons {
         }
     }
 
-    public static final Icon CONTROL = new Icon(controlGlyph(false), 0, -960, 960, 0);
-    public static final Icon CONTROL_ON = new Icon(controlGlyph(true), 0, -960, 960, 0);
+    public static final Icon CONTROL = new Icon(controlGlyph(false, false), 0, -960, 960, 0);
+    public static final Icon CONTROL_ON = new Icon(controlGlyph(true, false), 0, -960, 960, 0);
+    /** The control after a start that didn't arrive: "!" in the sparkle's place, as the extension's error corner. */
+    public static final Icon CONTROL_BANG = new Icon(controlGlyph(false, true), 0, -960, 960, 0);
+    public static final Icon CONTROL_ON_BANG = new Icon(controlGlyph(true, true), 0, -960, 960, 0);
     public static final Icon TUNE = new Icon(path(IconPaths.TUNE), 0, -960, 960, 0);
     public static final Icon TRANSLATE = new Icon(path(IconPaths.TRANSLATE), 0, -960, 960, 0);
     /** The sparkle alone, in its own box, as the extension's {@code spark()} draws it. */
@@ -104,23 +107,32 @@ public final class Icons {
     /**
      * The player control: the subtitles frame with the sparkle at its top right and a gap cut
      * around it, as the extension's {@code controlGlyph()}. Filled, the frame is the logo's: a
-     * solid rounded rectangle with its two caption lines cut out.
+     * solid rounded rectangle with its two caption lines cut out. With {@code bang}, "!" stands in the
+     * sparkle's place, a bar and a dot so no font is needed, with the same gap around it.
      */
-    private static Path controlGlyph(boolean filled) {
-        Path sparkle = path(IconPaths.SPARKLE);
-        Matrix place = new Matrix();
-        place.setTranslate(IconPaths.SPARKLE_SX, IconPaths.SPARKLE_SY);
-        place.postScale(IconPaths.SPARKLE_SCALE, IconPaths.SPARKLE_SCALE);
-        place.postTranslate(IconPaths.SPARKLE_TX, IconPaths.SPARKLE_TY);
-        sparkle.transform(place);
+    private static Path controlGlyph(boolean filled, boolean bang) {
+        Path badge;
+        if (bang) {
+            badge = new Path();
+            badge.addRoundRect(new RectF(BADGE_X - 38, -1010, BADGE_X + 38, -760), 38, 38, Path.Direction.CW);
+            badge.addCircle(BADGE_X, -690, 44, Path.Direction.CW);
+        } else {
+            badge = path(IconPaths.SPARKLE);
+            Matrix place = new Matrix();
+            place.setTranslate(IconPaths.SPARKLE_SX, IconPaths.SPARKLE_SY);
+            place.postScale(IconPaths.SPARKLE_SCALE, IconPaths.SPARKLE_SCALE);
+            place.postTranslate(IconPaths.SPARKLE_TX, IconPaths.SPARKLE_TY);
+            badge.transform(place);
+        }
 
         Paint gapPaint = new Paint();
         gapPaint.setStyle(Paint.Style.STROKE);
         gapPaint.setStrokeJoin(Paint.Join.ROUND);
+        // 1.5 px each side at 24 px, 120 grid units across, round the sparkle and "!" alike.
         gapPaint.setStrokeWidth(IconPaths.SPARKLE_GAP * IconPaths.SPARKLE_SCALE);
         Path gap = new Path();
-        gapPaint.getFillPath(sparkle, gap);
-        gap.op(sparkle, Path.Op.UNION);
+        gapPaint.getFillPath(badge, gap);
+        gap.op(badge, Path.Op.UNION);
 
         Path frame;
         if (filled) {
@@ -139,9 +151,12 @@ public final class Icons {
             frame = path(IconPaths.SUBTITLES);
         }
         frame.op(gap, Path.Op.DIFFERENCE);
-        frame.op(sparkle, Path.Op.UNION);
+        frame.op(badge, Path.Op.UNION);
         return frame;
     }
+
+    /** The badge's centre in the grid: the subtitles frame's top-right corner, as {@code BADGE} in {@code lib/icons.ts}. */
+    private static final float BADGE_X = 860;
 
     /** Two caption lines, a short one over a long one: the extension's {@code dualIcon()}. */
     private static Path dual() {

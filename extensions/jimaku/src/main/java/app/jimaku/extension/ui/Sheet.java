@@ -57,6 +57,7 @@ public final class Sheet {
     private final Dialog dialog;
     private final Root root;
     private final Panel panel;
+    private final LinearLayout header;
     private final LinearLayout content;
     private final ScrollView scroll;
     private OnClosed onClosed;
@@ -79,6 +80,8 @@ public final class Sheet {
         this.theme = Theme.of(activity, dark);
         this.maxTop = maxTop;
 
+        header = new LinearLayout(activity);
+        header.setOrientation(LinearLayout.VERTICAL);
         content = new LinearLayout(activity);
         content.setOrientation(LinearLayout.VERTICAL);
         scroll = new ScrollView(activity);
@@ -98,6 +101,7 @@ public final class Sheet {
             panel.setAccessibilityPaneTitle(hostString("bottom_sheet_accessibility_pane_title"));
         }
         panel.addView(new Handle(activity, hostString("bottomsheet_drag_handle_content_description")), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, theme.dp(12)));
+        panel.addView(header, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         panel.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         panel.setPadding(0, 0, 0, theme.dp(8));
 
@@ -107,7 +111,9 @@ public final class Sheet {
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-                root.insets.set(bars.left, bars.top, bars.right, bars.bottom);
+                // The keyboard, while Other languages' search has it, pushes the sheet up above it.
+                int keyboard = insets.getInsets(WindowInsets.Type.ime()).bottom;
+                root.insets.set(bars.left, bars.top, bars.right, Math.max(bars.bottom, keyboard));
             } else {
                 root.insets.set(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
                         insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
@@ -133,6 +139,9 @@ public final class Sheet {
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
             window.setWindowAnimations(0);
+            // The keyboard opens only when the search field is tapped.
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+                    | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
             window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.setDecorFitsSystemWindows(false);
@@ -209,9 +218,25 @@ public final class Sheet {
 
     /** Replaces the sheet's rows as YouTube replaces its settings sheet with its Captions sheet. */
     public void replace(List<View> rows) {
+        replace(List.of(), rows);
+    }
+
+    /**
+     * Replaces the sheet with {@code top}, which stays above the list while it scrolls and while its
+     * rows are put in again, and {@code rows} under it.
+     */
+    public void replace(List<View> top, List<View> rows) {
+        panel.setMinimumHeight(0);
+        header.removeAllViews();
+        for (View row : top) header.addView(row);
         scroll.scrollTo(0, 0);
         show(rows);
         root.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+    }
+
+    /** Keeps the sheet at the height it has now while its list narrows, as Other languages while it is searched. */
+    public void keepHeight() {
+        if (panel.getHeight() > panel.getMinimumHeight()) panel.setMinimumHeight(panel.getHeight());
     }
 
     /**

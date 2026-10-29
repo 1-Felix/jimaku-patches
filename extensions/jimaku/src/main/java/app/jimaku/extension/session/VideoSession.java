@@ -1,8 +1,10 @@
 package app.jimaku.extension.session;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -13,7 +15,11 @@ import app.jimaku.extension.gateway.Gateway;
 import app.jimaku.extension.gateway.GatewayException;
 import app.jimaku.extension.gateway.Lookup;
 import app.jimaku.extension.gateway.Reads;
+import app.jimaku.extension.menu.MenuInput;
+import app.jimaku.extension.menu.Subtitle;
+import app.jimaku.extension.menu.Version;
 import app.jimaku.extension.subtitles.Line;
+import app.jimaku.extension.youtube.TrackInfo;
 
 /**
  * The subtitles of the video in the watch player. A new video removes the old one's subtitles
@@ -39,9 +45,20 @@ public final class VideoSession {
 
         /** A new video started, or nothing may show: everything of the last video goes. */
         void clear();
+
+        /** YouTube said what it has for {@code video}: its caption tracks, length and live state. */
+        default void tracked(String video) {
+        }
+    }
+
+    /** YouTube's caption tracks for a video, read as the installed app reads them. */
+    public interface Tracks {
+        /** What YouTube says about {@code video}, or null where it gives nothing to go by. */
+        TrackInfo tracks(String video, Cancellation cancellation) throws GatewayException;
     }
 
     private final Reads reads;
+    private final Tracks tracks;
     private final Executor background;
     private final Executor main;
     private final Display display;
@@ -49,6 +66,8 @@ public final class VideoSession {
     private String video;
     private Lookup lookup;
     private boolean lookedUp;
+    /** What YouTube said about the video, or null while it hasn't, or where it said nothing to go by. */
+    private TrackInfo track;
     private final Map<String, List<Line>> documents = new HashMap<>();
     private List<Line> original;
     private boolean originalAsked;
@@ -60,7 +79,13 @@ public final class VideoSession {
     private long generation;
 
     public VideoSession(Reads reads, Executor background, Executor main, Display display) {
+        this(reads, null, background, main, display);
+    }
+
+    /** {@code tracks}: YouTube's caption tracks, or null to read none. */
+    public VideoSession(Reads reads, Tracks tracks, Executor background, Executor main, Display display) {
         this.reads = reads;
+        this.tracks = tracks;
         this.background = background;
         this.main = main;
         this.display = display;
@@ -96,6 +121,27 @@ public final class VideoSession {
         return original;
     }
 
+    /** What YouTube said about the video, or null. */
+    public TrackInfo track() {
+        return track;
+    }
+
+    /**
+     * What the menu model reads for a signed-out viewer: the cache, what shows, and YouTube's track,
+     * length and live state, the track unknown until YouTube has said.
+     */
+    public MenuInput input(String preferred, Locale locale) {
+        MenuInput.Builder input = new MenuInput.Builder(preferred).lookup(lookup).locale(locale);
+        if (showing != null) input.showing(new Subtitle(showing, Version.PREMIUM));
+        TrackInfo said = track;
+        if (said != null) {
+            List<String> uploaded = new ArrayList<>();
+            for (TrackInfo.Uploaded each : said.uploaded) uploaded.add(each.lang);
+            input.track(said.language).duration(said.duration).live(said.live).uploaded(uploaded);
+        }
+        return input.build();
+    }
+
     /** A new video started, or nothing may show: the subtitles go and pending reads stop. */
     public void reset() {
         generation++;
@@ -104,6 +150,7 @@ public final class VideoSession {
         video = null;
         lookup = null;
         lookedUp = false;
+        track = null;
         documents.clear();
         original = null;
         originalAsked = false;
@@ -155,6 +202,35 @@ public final class VideoSession {
                     documents.put(preferred, document);
                     if (preferred.equals(wanted)) present(preferred);
                 }
+            });
+        });
+        readTracks(videoId, readFor);
+    }
+
+    /** Asks YouTube for the video's caption tracks beside the lookup, as the extension reads the page's. */
+    private void readTracks(String videoId, long readFor) {
+        if (tracks == null) return;
+        Cancellation cancellation = started();
+        background.execute(() -> {
+            TrackInfo said = null;
+            try {
+                said = tracks.tracks(videoId, cancellation);
+                if (said == null) JimakuLog.info("No caption tracks from YouTube for " + videoId);
+            } catch (GatewayException e) {
+                if (!"cancelled".equals(e.code)) JimakuLog.warn("YouTube read for " + videoId + " failed: " + e.code);
+            } catch (RuntimeException e) {
+                JimakuLog.fault("youtube read", e);
+            }
+            TrackInfo answer = said;
+            main.execute(() -> {
+                if (readFor != generation) return;
+                pending.remove(cancellation);
+                track = answer;
+                if (answer != null) {
+                    JimakuLog.info("YouTube tracks for " + videoId + ": " + (answer.language != null ? answer.language : "none")
+                            + ", " + answer.uploaded.size() + " uploaded" + (answer.live ? ", live" : ""));
+                }
+                display.tracked(videoId);
             });
         });
     }

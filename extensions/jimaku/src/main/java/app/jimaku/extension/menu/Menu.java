@@ -5,14 +5,13 @@ import android.content.Context;
 import android.graphics.Rect;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.EditText;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 import app.jimaku.extension.Guard;
-import app.jimaku.extension.gateway.Lookup;
-import app.jimaku.extension.session.VideoSession;
 import app.jimaku.extension.settings.Look;
 import app.jimaku.extension.shared.Wording;
 import app.jimaku.extension.ui.Icons;
@@ -21,15 +20,38 @@ import app.jimaku.extension.ui.Sheet;
 import app.jimaku.extension.ui.Theme;
 
 /**
- * Jimaku's menu in a sheet of YouTube's kind: the languages, Original caption and Settings, then
- * Settings in place of them. Its rows are built again after every change, so they always read the
- * session and the settings as they are. Main thread only.
+ * Jimaku's menu in a sheet of YouTube's kind: the languages as the extension's menu model has them
+ * for a signed-out viewer, Other languages, Original caption and Settings, each of the last two
+ * replacing the main sheet. Its rows are built again after every change, so they always read the
+ * video and the settings as they are. A row that asks first turns into its question in place, with
+ * ✕ and ✓; a question its row no longer asks is dropped. Main thread only.
  */
 public final class Menu {
     /** What the menu needs from the player. */
     public interface Host {
         /** The preferred language, the app's. */
         String preferred();
+
+        /** The video in the watch player, or null. */
+        String video();
+
+        /** What is known about the video now, for the menu model. */
+        MenuInput input();
+
+        /** Shows {@code subtitle}, which exists for the video. */
+        void show(Subtitle subtitle);
+
+        /** Hides the subtitles on screen. */
+        void hide();
+
+        /** Makes {@code subtitle}: the menu has closed. */
+        void start(Subtitle subtitle);
+
+        /** Stops the job making {@code subtitle}: the menu has closed. */
+        void stop(Subtitle subtitle);
+
+        /** A press while another language is made: the menu has closed, and the message says so. */
+        void busy();
 
         /** Settings opened or closed: the captions show their outline and grip, or a sample, while it is open. */
         void settingsShown(boolean shown);
@@ -44,14 +66,33 @@ public final class Menu {
         boolean besideTouch(MotionEvent event);
     }
 
-    private final VideoSession session;
+    private enum Panel { MAIN, OTHER, SETTINGS }
+
+    /** The row asking its question, in the panel it was asked in, with what its ✓ does and the words last announced. */
+    private static final class Asking {
+        final Subtitle subtitle;
+        final Panel panel;
+        final LanguageRow.Press press;
+        String announced;
+
+        Asking(Subtitle subtitle, Panel panel, LanguageRow.Press press) {
+            this.subtitle = subtitle;
+            this.panel = panel;
+            this.press = press;
+        }
+    }
+
     private final Look look;
     private final Host host;
     private Sheet sheet;
-    private boolean settings;
+    private Panel panel = Panel.MAIN;
+    private Asking asking;
+    /** The question ✕ just took back: its row gets TalkBack's focus when it is drawn again. */
+    private Asking cancelled;
+    private EditText search;
+    private View checkedRow;
 
-    public Menu(VideoSession session, Look look, Host host) {
-        this.session = session;
+    public Menu(Look look, Host host) {
         this.look = look;
         this.host = host;
     }
@@ -62,7 +103,7 @@ public final class Menu {
 
     /** Whether Settings is the sheet on screen. */
     public boolean settingsShown() {
-        return isOpen() && settings;
+        return isOpen() && panel == Panel.SETTINGS;
     }
 
     /** What Settings covers of the screen at its right edge in fullscreen, in screen pixels, or null. */
@@ -74,24 +115,27 @@ public final class Menu {
     public void open(Activity activity, int maxTop) {
         if (isOpen()) return;
         // A sheet whose activity went never tells it closed; its Settings ends here.
-        if (sheet != null && settings) host.settingsShown(false);
-        settings = false;
+        if (sheet != null && panel == Panel.SETTINGS) host.settingsShown(false);
+        panel = Panel.MAIN;
+        asking = null;
+        search = null;
         sheet = Sheet.open(activity, maxTop, host.darkTheme());
         Sheet opened = sheet;
         sheet.setOnClosed(() -> Guard.run("menu closed", () -> {
             if (sheet != opened) return;
-            boolean wasSettings = settings;
+            boolean wasSettings = panel == Panel.SETTINGS;
             sheet = null;
-            settings = false;
+            panel = Panel.MAIN;
+            asking = null;
+            search = null;
             if (wasSettings) host.settingsShown(false);
         }));
         sheet.setBeside(event -> {
             boolean[] taken = {false};
-            Guard.run("captions drag", () -> taken[0] = sheet == opened && settings && host.besideTouch(event));
+            Guard.run("captions drag", () -> taken[0] = sheet == opened && panel == Panel.SETTINGS && host.besideTouch(event));
             return taken[0];
         });
-        List<View> rows = main();
-        sheet.show(rows);
+        sheet.show(main());
         View checked = checkedRow;
         if (checked != null) sheet.reveal(checked);
     }
@@ -105,36 +149,43 @@ public final class Menu {
         if (sheet != null) sheet.setSeeThrough(value);
     }
 
-    /** Builds the rows again from the session and the settings as they are now. */
+    /** Builds the rows again from what is known now and the settings as they are. */
     public void refresh() {
         if (!isOpen()) return;
-        sheet.show(settings ? settingsRows() : main());
+        sheet.show(rows());
     }
 
-    private View checkedRow;
+    private List<View> rows() {
+        return switch (panel) {
+            case MAIN -> main();
+            case OTHER -> other();
+            case SETTINGS -> settingsRows();
+        };
+    }
 
     private List<View> main() {
         Context context = sheet.context();
         Theme theme = sheet.theme();
-        Lookup lookup = session.lookup();
-        String preferred = host.preferred();
-        String wanted = session.wanted();
+        MenuInput input = host.input();
+        MainPanel main = MenuModel.mainPanel(input);
         List<View> rows = new ArrayList<>();
         checkedRow = null;
         rows.add(Rows.space(context, theme, 8));
-
-        List<MenuModel.Row> languages = MenuModel.languages(lookup, preferred, wanted, Locale.getDefault());
-        for (MenuModel.Row language : languages) {
-            View row = Rows.language(context, theme, language.name, language.checked, language.premium,
-                    Wording.t(Wording.MENU_PREMIUM), () -> press(language));
-            if (language.checked) checkedRow = row;
-            rows.add(row);
+        if (main.note != null) {
+            rows.add(Rows.note(context, theme, main.note));
+        } else {
+            for (LanguageRow row : main.rows) {
+                View view = language(context, theme, row);
+                if (row.checked) checkedRow = view;
+                rows.add(view);
+            }
+            if (main.other) rows.add(Rows.submenu(context, theme, Icons.TRANSLATE, Wording.t(Wording.MENU_OTHER), this::openOther));
         }
-        if (!languages.isEmpty()) rows.add(Rows.divider(context, theme));
+        dropStale(main.rows);
+        rows.add(Rows.divider(context, theme));
 
-        boolean available = MenuModel.originalAvailable(lookup, preferred, wanted);
-        rows.add(Rows.toggle(context, theme, Icons.DUAL, Wording.t(Wording.MENU_ORIGINAL), look.dual(), available, () -> {
-            if (!MenuModel.originalAvailable(session.lookup(), host.preferred(), session.wanted())) return;
+        rows.add(Rows.toggle(context, theme, Icons.DUAL, Wording.t(Wording.MENU_ORIGINAL), look.dual(), main.original, () -> {
+            if (!MenuModel.originalAvailable(host.input())) return;
             look.setDual(!look.dual());
             if (look.dual()) host.originalWanted();
             refresh();
@@ -143,20 +194,130 @@ public final class Menu {
         return rows;
     }
 
-    private void press(MenuModel.Row language) {
-        if (language.checked) {
-            session.hide();
-            look.setOn(false);
-        } else {
-            session.choose(language.lang);
-            look.setOn(true);
+    /** Other languages' list under its search: the caption, or that nothing matches, then the languages. */
+    private List<View> other() {
+        Context context = sheet.context();
+        Theme theme = sheet.theme();
+        String typed = search != null ? search.getText().toString().trim() : "";
+        OtherPanel other = MenuModel.otherPanel(host.input(), typed);
+        List<View> rows = new ArrayList<>();
+        String caption = !other.rows.isEmpty() || typed.isEmpty() ? other.caption : Wording.t(Wording.POPUP_NO_LANGUAGE, typed);
+        rows.add(Rows.listCaption(context, theme, caption));
+        for (LanguageRow row : other.rows) rows.add(language(context, theme, row));
+        dropStale(other.rows);
+        return rows;
+    }
+
+    /** A language row, or its question where it asks one. */
+    private View language(Context context, Theme theme, LanguageRow row) {
+        Subtitle subtitle = row.subtitle();
+        Asking current = asking;
+        if (current != null && current.panel == panel && current.press == row.press && subtitle.equals(current.subtitle) && row.ask != null) {
+            // A question is heard when it first shows, and again where its words changed.
+            boolean announce = !row.ask.question.equals(current.announced);
+            current.announced = row.ask.question;
+            return Rows.question(context, theme, row.name, row.lang, row.ask.question,
+                    Wording.t(Wording.MENU_ROW_ASKS, row.name, row.ask.question), Wording.t(Wording.ASK_CANCEL), row.ask.yes,
+                    announce, this::unask, () -> act(row));
         }
+        View view = Rows.language(context, theme, row.name, row.lang, row.value, row.checked, row.version == Version.PREMIUM,
+                Wording.t(Wording.MENU_PREMIUM), () -> press(row));
+        Asking back = cancelled;
+        if (back != null && back.panel == panel && back.press == row.press && subtitle.equals(back.subtitle)) {
+            cancelled = null;
+            Rows.focusWhenShown(view);
+        }
+        return view;
+    }
+
+    /** A row that no longer asks what the viewer was asked has dropped its question. */
+    private void dropStale(List<LanguageRow> rows) {
+        Asking current = asking;
+        if (current == null || current.panel != panel) return;
+        for (LanguageRow row : rows) {
+            if (row.ask != null && row.press == current.press && row.subtitle().equals(current.subtitle)) return;
+        }
+        asking = null;
+    }
+
+    private void press(LanguageRow row) {
+        if (row.ask == null) {
+            act(row);
+            return;
+        }
+        // The row turns into its question, with TalkBack's focus on ✕.
+        asking = new Asking(row.subtitle(), panel, row.press);
         refresh();
+    }
+
+    /** ✕: the row is back as it was, with TalkBack's focus on it, and nothing starts. */
+    private void unask() {
+        cancelled = asking;
+        asking = null;
+        refresh();
+        cancelled = null;
+    }
+
+    /** What pressing a row, or its question's ✓, does. Showing and hiding leave the menu open. */
+    private void act(LanguageRow row) {
+        asking = null;
+        Subtitle subtitle = row.subtitle();
+        switch (row.press) {
+            case SHOW -> {
+                host.show(subtitle);
+                look.setOn(true);
+                refresh();
+            }
+            case HIDE -> {
+                host.hide();
+                look.setOn(false);
+                refresh();
+            }
+            // Uploaded captions are never made or stopped: their rows show and hide.
+            case START -> {
+                if (subtitle.version == Version.UPLOADED) return;
+                close();
+                host.start(subtitle);
+            }
+            case STOP -> {
+                if (subtitle.version == Version.UPLOADED) return;
+                close();
+                host.stop(subtitle);
+            }
+            case BUSY -> {
+                close();
+                host.busy();
+            }
+            // Minutes are bought from step 4 on: signed out no row offers it.
+            case BUY -> close();
+        }
+    }
+
+    private void openOther() {
+        if (!isOpen()) return;
+        panel = Panel.OTHER;
+        asking = null;
+        Context context = sheet.context();
+        Theme theme = sheet.theme();
+        search = Rows.search(context, theme, Wording.t(Wording.POPUP_SEARCH), typed -> {
+            if (!isOpen() || panel != Panel.OTHER) return;
+            // The sheet keeps the height it opened at while the list narrows.
+            sheet.keepHeight();
+            asking = null;
+            sheet.show(other());
+        });
+        List<View> top = new ArrayList<>();
+        top.add(Rows.title(context, theme, Wording.t(Wording.MENU_OTHER), null, false, null));
+        top.add(Rows.divider(context, theme));
+        top.add(Rows.space(context, theme, 8));
+        top.add(Rows.searchRow(context, theme, search));
+        sheet.replace(top, other());
     }
 
     private void openSettings() {
         if (!isOpen()) return;
-        settings = true;
+        panel = Panel.SETTINGS;
+        asking = null;
         sheet.replace(settingsRows());
         // In fullscreen Settings moves to the right edge, so the captions it changes stay in view (Felix, 2026-10-29).
         sheet.moveToEnd();
@@ -166,10 +327,10 @@ public final class Menu {
     private List<View> settingsRows() {
         Context context = sheet.context();
         Theme theme = sheet.theme();
-        String video = session.video();
+        String video = host.video();
         List<View> rows = new ArrayList<>();
         rows.add(Rows.title(context, theme, Wording.t(Wording.MENU_SETTINGS), Wording.t(Wording.SETTINGS_RESET_ALL),
-                !look.atDefaults(video), () -> look.resetAll(session.video())));
+                !look.atDefaults(video), () -> look.resetAll(host.video())));
         rows.add(Rows.divider(context, theme));
         rows.add(Rows.caption(context, theme, Wording.t(Wording.SETTINGS_SIZE)));
         rows.add(stepper(context, theme, Wording.t(Wording.SETTINGS_TRANSLATION), percent(look.translation()),
@@ -182,7 +343,7 @@ public final class Menu {
         int timing = look.timing(video);
         rows.add(stepper(context, theme, Wording.t(Wording.SETTINGS_TIMING), seconds(timing),
                 video != null && timing > Look.TIMING_MIN, video != null && timing < Look.TIMING_MAX,
-                steps -> look.stepTiming(session.video(), steps)));
+                steps -> look.stepTiming(host.video(), steps)));
         rows.add(Rows.withAction(context, theme, Wording.t(Wording.SETTINGS_POSITION),
                 Wording.t(look.moved() ? Wording.SETTINGS_POSITION_MOVED : Wording.SETTINGS_POSITION_DEFAULT),
                 Wording.t(Wording.SETTINGS_RESET), look.moved(), look::resetPosition));

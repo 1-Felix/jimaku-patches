@@ -18,6 +18,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewConfiguration;
 import android.view.ViewParent;
+import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayDeque;
@@ -32,8 +33,13 @@ import android.widget.LinearLayout;
 import app.jimaku.extension.gateway.Gateway;
 import app.jimaku.extension.gateway.Requests;
 import app.jimaku.extension.gateway.Lookup;
+import app.jimaku.extension.jobs.Glide;
 import app.jimaku.extension.menu.Menu;
+import app.jimaku.extension.menu.MenuInput;
 import app.jimaku.extension.menu.MenuModel;
+import app.jimaku.extension.menu.Subtitle;
+import app.jimaku.extension.menu.Version;
+import app.jimaku.extension.overlay.Message;
 import app.jimaku.extension.overlay.PlayerButton;
 import app.jimaku.extension.overlay.SubtitleView;
 import app.jimaku.extension.session.VideoSession;
@@ -43,6 +49,8 @@ import app.jimaku.extension.shared.Samples;
 import app.jimaku.extension.shared.Wording;
 import app.jimaku.extension.subtitles.Line;
 import app.jimaku.extension.subtitles.LineCursor;
+import app.jimaku.extension.youtube.TrackInfo;
+import app.jimaku.extension.youtube.YouTube;
 
 /**
  * Jimaku in the watch player: follows Morphe's player events, looks up the video in the watch
@@ -61,6 +69,8 @@ final class Player implements VideoSession.Display, Menu.Host {
     /** YouTube's top bar in the player, and its CC button, beside which Jimaku's button sits. */
     private static final String TOP_BAR = "player_additional_view_container";
     private static final String CC_BUTTON = "player_subtitle_button";
+    /** YouTube's settings button at the top bar's end, under whose glyph Jimaku's message ends. */
+    private static final String OVERFLOW_BUTTON = "player_overflow_button";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final VideoSession session;
@@ -78,6 +88,7 @@ final class Player implements VideoSession.Display, Menu.Host {
 
     private WeakReference<Activity> activity = new WeakReference<>(null);
     private SubtitleView view;
+    private Message message;
     private ViewGroup overlay;
     private WeakReference<View> controls = new WeakReference<>(null);
     private WeakReference<View> surface = new WeakReference<>(null);
@@ -127,8 +138,15 @@ final class Player implements VideoSession.Display, Menu.Host {
     private Look look;
     private Menu menu;
     private PlayerButton button;
+    /** The job the button's bar shows, kept here since each player activity gets a button of its own. */
+    private boolean working;
+    private Glide workGlide;
+    private boolean workFailed;
     private WeakReference<ViewGroup> topBar = new WeakReference<>(null);
     private boolean topBarMissingLogged;
+
+    private volatile YouTube youtube;
+    private final Preview preview = BuildConfig.PREVIEW ? new Preview() : null;
 
     private boolean framePosted;
     private boolean pausedCheckPosted;
@@ -138,8 +156,21 @@ final class Player implements VideoSession.Display, Menu.Host {
     Player() {
         // An error a request throws ends its thread, never the app; the pool starts another.
         ExecutorService requests = Requests.pool((dead, fault) -> JimakuLog.fault("requests thread", fault));
-        session = new VideoSession(new Gateway(KeptInstall.of(Morphe::context)), requests,
+        session = new VideoSession(new Gateway(KeptInstall.of(Morphe::context)), this::tracks, requests,
                 answer -> main.post(() -> Guard.run("gateway answer", answer)), this);
+    }
+
+    /** YouTube's caption tracks for {@code video}, asked as the installed app, once there is a context to say which app. */
+    private TrackInfo tracks(String video, app.jimaku.extension.gateway.Cancellation cancellation)
+            throws app.jimaku.extension.gateway.GatewayException {
+        YouTube reader = youtube;
+        if (reader == null) {
+            Context context = Morphe.context();
+            if (context == null) return null;
+            reader = YouTube.of(context);
+            youtube = reader;
+        }
+        return reader.tracks(video, cancellation);
     }
 
     /** The settings, read once there is a context to read them from. */
@@ -151,7 +182,7 @@ final class Player implements VideoSession.Display, Menu.Host {
             Context app = context.getApplicationContext();
             look = new Look(app != null ? app : context);
             look.setOnChange(() -> Guard.run("settings change", this::onLookChange));
-            menu = new Menu(session, look, this);
+            menu = new Menu(look, this);
         }
         return look;
     }
@@ -164,6 +195,48 @@ final class Player implements VideoSession.Display, Menu.Host {
     @Override
     public String preferred() {
         return Languages.languageFor(Locale.getDefault());
+    }
+
+    @Override
+    public String video() {
+        return session.video();
+    }
+
+    @Override
+    public MenuInput input() {
+        return session.input(preferred(), Locale.getDefault());
+    }
+
+    @Override
+    public void show(Subtitle subtitle) {
+        if (subtitle.version == Version.PREMIUM) session.choose(subtitle.lang);
+        else JimakuLog.info("Showing " + subtitle + " comes with the jobs");
+    }
+
+    @Override
+    public void hide() {
+        session.hide();
+    }
+
+    @Override
+    public void start(Subtitle subtitle) {
+        JimakuLog.info("Making " + subtitle + " comes with the jobs");
+    }
+
+    @Override
+    public void stop(Subtitle subtitle) {
+        JimakuLog.info("Stopping " + subtitle + " comes with the jobs");
+    }
+
+    @Override
+    public void busy() {
+        if (message != null) message.hold(Wording.t(Wording.FAIL_VIDEO_BUSY), null, null);
+    }
+
+    @Override
+    public void tracked(String video) {
+        if (menu != null) menu.refresh();
+        update();
     }
 
     @Override
@@ -403,8 +476,49 @@ final class Player implements VideoSession.Display, Menu.Host {
     private void onLayoutChange() {
         surfaceSearched = false;
         controlsRowSearched = false;
+        // Fullscreen moves the top bar: the message goes to where it is in the new layout, once it shows.
+        if (message != null && (overlay.getWidth() != messageWidth || overlay.getHeight() != messageHeight)) {
+            messageWidth = overlay.getWidth();
+            messageHeight = overlay.getHeight();
+            message.setAnchor(-1, -1, false);
+        }
         placeButton();
         update();
+    }
+
+    private int messageWidth;
+    private int messageHeight;
+
+    /**
+     * The message under the top bar's end: its end at the settings glyph's outer edge, 12 dp into that
+     * button, and its pill 4 dp below the bar. Measured while the top bar shows; while the controls
+     * hide it stays where it was. It shows only in the watch player at full size.
+     */
+    private void placeMessage(boolean fullSize) {
+        if (message == null || overlay == null) return;
+        int visibility = fullSize ? View.VISIBLE : View.GONE;
+        if (message.getVisibility() != visibility) {
+            // From the layout listener the change waits for the next pass; the next update corrects it if it moved on.
+            Message shown = message;
+            if (shown.isInLayout()) shown.post(() -> shown.setVisibility(visibility));
+            else shown.setVisibility(visibility);
+        }
+        if (!fullSize || !Morphe.controlsShown()) return;
+        int id = resourceId(OVERFLOW_BUTTON);
+        View end = id != 0 ? overlay.findViewById(id) : null;
+        if (end == null || !end.isShown() || end.getWidth() == 0) end = topBar.get();
+        if (end == null || !end.isShown() || end.getWidth() == 0) return;
+        message.getLocationInWindow(viewLocation);
+        end.getLocationInWindow(otherLocation);
+        int left = otherLocation[0] - viewLocation[0];
+        int top = otherLocation[1] - viewLocation[1];
+        boolean atLeft = left + end.getWidth() / 2 < message.getWidth() / 2;
+        int inset = dp(12);
+        message.setAnchor(atLeft ? left + inset : left + end.getWidth() - inset, top + end.getHeight() - dp(4), atLeft);
+    }
+
+    private int dp(float value) {
+        return Math.round(value * overlay.getResources().getDisplayMetrics().density);
     }
 
     /** Looks up the video if it is new in the watch player, then draws or stops. */
@@ -427,6 +541,8 @@ final class Player implements VideoSession.Display, Menu.Host {
         // the overlay is found again here, as Morphe doesn't report the new controls.
         if (fullSize && (view == null || !view.isAttachedToWindow())) findOverlayInActivity();
         boolean canShow = mayShow && isOnScreen();
+        placeMessage(fullSize);
+        if (preview != null && fullSize) preview.apply(Morphe.context(), message, this::work);
         if (canShow) draw(original, originalOn);
         else if (view != null) {
             view.setText(null, null);
@@ -566,6 +682,15 @@ final class Player implements VideoSession.Display, Menu.Host {
         else name = Wording.t(Wording.PLAYER_NAME);
         button.setOn(on);
         button.setName(name);
+        button.setWork(working, workGlide, workFailed);
+    }
+
+    /** What the button's bar shows: a job filling along {@code glide}, or sweeping without one, or "!" where a start failed. */
+    void work(boolean working, Glide glide, boolean failed) {
+        this.working = working;
+        workGlide = glide;
+        workFailed = failed;
+        if (button != null) button.setWork(working, glide, failed);
     }
 
     private void openMenu() {
@@ -638,6 +763,19 @@ final class Player implements VideoSession.Display, Menu.Host {
         ViewParent parent = view.getParent();
         if (parent instanceof ViewGroup oldParent) oldParent.removeView(view);
         found.addView(view, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (message != null && message.getContext() != found.getContext()) {
+            if (message.getParent() instanceof ViewGroup oldParent) oldParent.removeView(message);
+            message = null;
+        }
+        if (message == null) {
+            message = new Message(found.getContext());
+            message.setOnDismiss(() -> Guard.run("message closed", () -> {
+                if (button != null && button.isShown()) button.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
+            }));
+        }
+        if (message.getParent() instanceof ViewGroup oldParent) oldParent.removeView(message);
+        // Over the subtitles and YouTube's controls, so its buttons take their touches.
+        found.addView(message, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         found.addOnLayoutChangeListener(layoutChange);
         overlay = found;
         surfaceSearched = false;

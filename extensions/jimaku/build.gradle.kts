@@ -16,6 +16,10 @@ android {
         // A build that throws in the playback time listener, to check fault containment:
         // ./gradlew buildAndroid -Pjimaku.faultTest=true
         buildConfigField("boolean", "FAULT_TEST", (findProperty("jimaku.faultTest") == "true").toString())
+
+        // A build whose message and button show a state set from the shell, for screenshots of their look:
+        // ./gradlew buildAndroid -Pjimaku.preview=true, then adb shell settings put global jimaku_preview progress
+        buildConfigField("boolean", "PREVIEW", (findProperty("jimaku.preview") == "true").toString())
     }
 
     testOptions {
