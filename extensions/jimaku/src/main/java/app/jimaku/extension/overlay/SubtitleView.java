@@ -26,8 +26,13 @@ import java.util.Objects;
  * The view takes no touches and no focus, so taps reach the player below it.
  */
 public final class SubtitleView extends View {
-    /** Of the visible video's height: the default caption size of Android's own players. */
-    private static final float TEXT_SIZE_FRACTION = 0.0533f;
+    /**
+     * The text size is a fixed part plus a share of the visible video's height, as YouTube sizes
+     * its own captions at their default size: measured on YouTube 21.16.256 as 13.7 dp in the
+     * portrait player (video 232 dp tall) and 15.9 dp in fullscreen (411 dp).
+     */
+    private static final float TEXT_SIZE_BASE_DP = 10.9f;
+    private static final float TEXT_SIZE_FRACTION = 0.0122f;
     private static final float WRAP_FRACTION = 0.9f;
     /** Gap between the subtitle and the video's bottom edge, of the video's height. */
     private static final float BOTTOM_GAP_FRACTION = 0.06f;
@@ -46,6 +51,7 @@ public final class SubtitleView extends View {
     private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint groundPaint = new Paint();
     private final float fontScale;
+    private final float density;
     private final Rect video = new Rect();
     private final List<StaticLayout> layouts = new ArrayList<>();
 
@@ -75,6 +81,7 @@ public final class SubtitleView extends View {
 
         CaptioningManager captioning = context.getSystemService(CaptioningManager.class);
         fontScale = captioning != null ? captioning.getFontScale() : 1f;
+        density = context.getResources().getDisplayMetrics().density;
     }
 
     public void setOnScreenChange(OnScreenChange listener) {
@@ -112,7 +119,7 @@ public final class SubtitleView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         if (text == null || video.isEmpty()) return;
-        float size = video.height() * TEXT_SIZE_FRACTION * fontScale;
+        float size = (TEXT_SIZE_BASE_DP * density + video.height() * TEXT_SIZE_FRACTION) * fontScale;
         int wrapWidth = Math.max(1, Math.round(video.width() * WRAP_FRACTION));
         layOut(size, wrapWidth);
 
