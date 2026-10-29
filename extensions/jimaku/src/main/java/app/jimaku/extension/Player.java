@@ -221,7 +221,9 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
         Activity current = activity.get();
         Context context = current != null && !current.isFinishing() ? current : Morphe.context();
         if (context == null) return false;
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE);
+        // Not a leave by the viewer: YouTube doesn't go to picture-in-picture, so its return is a start that foreground() hears.
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
+                .addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION);
         if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             context.startActivity(intent);

@@ -361,4 +361,32 @@ public class AccountStateTest {
         assertTrue(changes > before);
         assertFalse(Me.parse(stored).signedIn);
     }
+
+    @Test
+    public void aReadAskedBeforeSigningOutDoesNotSignBackIn() {
+        signedIn(18000, "already-claimed");
+        background.held = true;
+        state.read();
+        state.signOut();
+        // Sign-out answers first; the read, asked while still signed in, answers after it.
+        Runnable read = background.queue.pollFirst();
+        background.drain();
+        read.run();
+        assertFalse(state.signedIn());
+        assertFalse(Me.parse(stored).signedIn);
+    }
+
+    @Test
+    public void twoReturnsWhileAPaymentIsConfirmedSayItOnce() {
+        signedIn(0, "eligible");
+        gateway.checkout = () -> new Accounts.Checkout("https://checkout.stripe.com/c/pay/cs_test_a1", "cs_test_a1");
+        state.buy(500);
+        gateway.confirm = () -> new Accounts.Purchase(18000, 300);
+        background.held = true;
+        state.foreground();
+        state.foreground();
+        background.drain();
+        assertEquals(1, gateway.calls.stream().filter(call -> call.startsWith("confirm")).count());
+        assertEquals(List.of("300 minutes added"), said);
+    }
 }

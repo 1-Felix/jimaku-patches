@@ -78,6 +78,10 @@ public final class AccountState {
     private boolean everAsked;
     private boolean reading;
     private boolean readAgain;
+    /** Counts the answers taken, so a read that started before one of them is left. */
+    private int taken;
+    /** A payment's confirmation is on its way, with its one retry: a return meanwhile asks nothing more. */
+    private boolean confirming;
     /** The account action running, one at a time: sign-in, buy, claim or sign-out. */
     private String action;
     private long signInUntil;
@@ -179,10 +183,15 @@ public final class AccountState {
         }
         reading = true;
         readAgain = false;
+        int at = taken;
         call(gateway::me, (answer, error) -> {
             reading = false;
-            if (answer != null) take(answer);
-            else {
+            // A read older than an answer taken since, such as sign-out's, or than a preview's stand-in, is left.
+            if (at != taken || pretending) {
+                JimakuLog.info("Account read left: newer known");
+            } else if (answer != null) {
+                take(answer);
+            } else {
                 failed = true;
                 JimakuLog.warn("No account read: " + error.code);
             }
@@ -216,6 +225,7 @@ public final class AccountState {
     }
 
     private void take(Me answer) {
+        taken++;
         me = answer;
         keptRead = true;
         failed = false;
@@ -231,8 +241,10 @@ public final class AccountState {
     public void signIn() {
         if (action != null) return;
         action = "sign-in";
+        changed();
         call(gateway::linkCode, (code, error) -> {
             action = null;
+            changed();
             if (code != null && browser.open(LINK_PAGE + code)) {
                 signInUntil = timer.now() + SIGN_IN_MILLIS;
                 return;
@@ -299,7 +311,7 @@ public final class AccountState {
         long now = timer.now();
         String session = checkout != null && now < checkoutUntil ? checkout : null;
         if (session != null) {
-            confirm(session, true);
+            if (!confirming) confirm(session, true);
             return;
         }
         checkout = null;
@@ -318,7 +330,10 @@ public final class AccountState {
     }
 
     private void confirm(String session, boolean retry) {
+        confirming = true;
         call(cancellation -> gateway.confirm(session, cancellation), (paid, error) -> {
+            boolean again = paid == null && error.code.equals("payment_pending") && retry;
+            confirming = again;
             if (paid != null) {
                 if (session.equals(checkout)) checkout = null;
                 messages.info(Wording.t(Wording.ACCOUNT_ADDED, String.valueOf(paid.minutes)));
@@ -326,7 +341,7 @@ public final class AccountState {
                 return;
             }
             // Not paid yet, or cancelled: one more ask, and then it waits for the next return, or the webhook.
-            if (error.code.equals("payment_pending") && retry) {
+            if (again) {
                 timer.after(CONFIRM_RETRY_MILLIS, () -> confirm(session, false));
                 return;
             }
