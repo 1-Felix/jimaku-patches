@@ -5,15 +5,18 @@ import android.app.Application;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Choreographer;
+import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewConfiguration;
 import android.view.ViewParent;
 
 import java.lang.ref.WeakReference;
@@ -103,6 +106,22 @@ final class Player implements VideoSession.Display, Menu.Host {
     private String heldText;
     private String heldOriginal;
     private boolean editing;
+    /** A drag by the captions' grip under way: where the finger went down and where the captions were then. */
+    private Drag drag;
+
+    private static final class Drag {
+        final float downX;
+        final float downY;
+        final float startDx;
+        final float startDy;
+
+        Drag(float downX, float downY, float startDx, float startDy) {
+            this.downX = downX;
+            this.downY = downY;
+            this.startDx = startDx;
+            this.startDy = startDy;
+        }
+    }
 
     private Look look;
     private Menu menu;
@@ -164,6 +183,63 @@ final class Player implements VideoSession.Display, Menu.Host {
         } catch (RuntimeException | LinkageError e) {
             JimakuLog.warn("No theme from Morphe: " + e);
             return null;
+        }
+    }
+
+    /**
+     * Drags the captions by their grip while Settings is open, as the extension does with a pointer:
+     * they follow the finger within their reach, and where they are dropped is kept as a share of
+     * the player. A touch that doesn't move them changes nothing.
+     */
+    @Override
+    public boolean besideTouch(MotionEvent event) {
+        SubtitleView captions = view;
+        Look settings = look();
+        if (captions == null || settings == null) return false;
+        int[] at = new int[2];
+        captions.getLocationOnScreen(at);
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN -> {
+                RectF grip = captions.gripArea();
+                if (grip.isEmpty() || !grip.contains(event.getRawX() - at[0], event.getRawY() - at[1])) return false;
+                drag = new Drag(event.getRawX(), event.getRawY(), captions.drawnOffsetX(), captions.drawnOffsetY());
+                captions.setDragging(true);
+                if (menu != null) menu.setSeeThrough(true);
+                return true;
+            }
+            case MotionEvent.ACTION_MOVE -> {
+                Drag current = drag;
+                Rect video = captions.videoArea();
+                if (current == null) return false;
+                if (video.isEmpty()) return true;
+                // Up the screen is a larger offset from their own place.
+                float dx = current.startDx + event.getRawX() - current.downX;
+                float dy = current.startDy - (event.getRawY() - current.downY);
+                captions.setPosition(dx / video.width(), dy / video.height());
+                return true;
+            }
+            case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                Drag ended = drag;
+                if (ended == null) return false;
+                drag = null;
+                captions.setDragging(false);
+                if (menu != null) menu.setSeeThrough(false);
+                float slop = ViewConfiguration.get(captions.getContext()).getScaledTouchSlop();
+                boolean moved = Math.hypot(event.getRawX() - ended.downX, event.getRawY() - ended.downY) > slop;
+                Rect video = captions.videoArea();
+                if (!moved || video.isEmpty()) {
+                    update();
+                    return true;
+                }
+                float dx = captions.drawnOffsetX();
+                float dy = captions.drawnOffsetY();
+                if (dx == 0 && dy == 0) settings.resetPosition();
+                else settings.setPosition(dx / video.width(), dy / video.height());
+                return true;
+            }
+            default -> {
+                return drag != null;
+            }
         }
     }
 
@@ -397,7 +473,7 @@ final class Player implements VideoSession.Display, Menu.Host {
         }
 
         view.setLook(settings.translation(), settings.original(), settings.background());
-        view.setPosition(settings.positionX(), settings.positionY());
+        if (drag == null) view.setPosition(settings.positionX(), settings.positionY());
         view.setEditing(editing);
         view.setText(text, textLang);
         view.setOriginal(originalText, originalLang);

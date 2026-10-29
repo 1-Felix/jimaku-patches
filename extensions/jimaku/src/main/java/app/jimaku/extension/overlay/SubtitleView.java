@@ -52,6 +52,10 @@ public final class SubtitleView extends View {
     /** The grip's target: this wide to the captions' left, and this far above and below them. */
     public static final float GRIP_WIDTH_DP = 40f;
     public static final float GRIP_OVER_DP = 8f;
+    /** The extension's reach for dragged captions, in dp: see {@code REACH} in its overlay. */
+    private static final float REACH_SIDE_DP = 60f;
+    private static final float REACH_DOWN_DP = 64f;
+    private static final float REACH_TOP_DP = 78f;
 
     /** Told when the view may have started or stopped being on screen. */
     public interface OnScreenChange {
@@ -143,6 +147,10 @@ public final class SubtitleView extends View {
     private final Rect covered = new Rect();
 
     private OnScreenChange onScreenChange;
+    private boolean dragging;
+    /** Where the captions were last drawn, in px from the middle and up from their own place without YouTube's controls. */
+    private float drawnDx;
+    private float drawnDy;
     private int controlsTop = -1;
     private float translationScale = 1f;
     private float originalScale = 1f;
@@ -255,6 +263,23 @@ public final class SubtitleView extends View {
         invalidate();
     }
 
+    /** While the captions are dragged by their grip: they follow it, under the Settings sheet too. */
+    public void setDragging(boolean value) {
+        if (dragging == value) return;
+        dragging = value;
+        invalidate();
+    }
+
+    /** Where the captions were last drawn, in px right of the middle, within the reach. */
+    public float drawnOffsetX() {
+        return drawnDx;
+    }
+
+    /** Where the captions were last drawn, in px up from their own place, within the reach. */
+    public float drawnOffsetY() {
+        return drawnDy;
+    }
+
     /** The grip's target in this view's coordinates as last drawn, empty when it isn't drawn. */
     public RectF gripArea() {
         return grip;
@@ -277,9 +302,10 @@ public final class SubtitleView extends View {
         float padding = size * GROUND_PADDING_EMS;
         float originalPadding = originalSize * GROUND_PADDING_EMS;
 
-        // Beside the Settings sheet the captions keep their outline, and the grip at their left, clear of it.
+        // Beside the Settings sheet the captions keep their outline, and the grip at their left, clear
+        // of it; while they are dragged they follow the finger, under the sheet too.
         boolean coverRight = false, coverLeft = false;
-        if (!covered.isEmpty() && covered.left < video.right && covered.right > video.left) {
+        if (!dragging && !covered.isEmpty() && covered.left < video.right && covered.right > video.left) {
             coverRight = covered.exactCenterX() >= video.exactCenterX();
             coverLeft = !coverRight;
         }
@@ -299,16 +325,33 @@ public final class SubtitleView extends View {
         int height = original.height + gap + translation.height;
 
         float lead = translation.height > 0 ? size : originalSize;
-        int bottom = video.bottom - Math.round(video.height() * BOTTOM_GAP_FRACTION);
-        boolean moved = shareX != 0 || shareY != 0;
-        if (!moved && controlsTop >= 0) bottom = Math.min(bottom, controlsTop - Math.round(lead * CONTROLS_GAP_EMS));
-        float dx = shareX * video.width();
-        int dy = Math.round(shareY * video.height());
-        bottom -= dy;
-        bottom = Math.min(bottom, video.bottom);
+        float half = Math.max(translation.width / 2 + padding, original.width / 2 + originalPadding);
+        float width = video.width();
+        float tall = video.height();
+        int baseGap = Math.round(tall * BOTTOM_GAP_FRACTION);
+        int baseBottom = video.bottom - baseGap;
+        float dx;
+        float dy;
+        if (shareX != 0 || shareY != 0) {
+            // The extension's reach: the middle at least 60 dp from either side, the grip at their left
+            // inside the player, down to the grip's edge at the player's bottom, at most 64 dp, and up
+            // until their bottom is 78 dp below the player's top, so the grip is always there to drag them back by.
+            float gripWidth = GRIP_WIDTH_DP * density;
+            float over = GRIP_OVER_DP * density;
+            float side = REACH_SIDE_DP * density;
+            dx = clamp(shareX * width, Math.max(half + gripWidth, side) - width / 2, width / 2 - Math.max(half, side));
+            dy = clamp(shareY * tall, -Math.min(REACH_DOWN_DP * density, baseGap - over),
+                    tall - baseGap - Math.max(height + over, REACH_TOP_DP * density));
+        } else {
+            // Their own place, above YouTube's controls while they show; a drag starts from here.
+            dx = 0;
+            dy = controlsTop >= 0 ? Math.max(0, baseBottom - (controlsTop - Math.round(lead * CONTROLS_GAP_EMS))) : 0;
+        }
+        drawnDx = dx;
+        drawnDy = dy;
+        int bottom = Math.min(Math.round(baseBottom - dy), video.bottom);
         int top = Math.max(video.top, bottom - height);
         float centre = video.exactCenterX() + dx;
-        float half = Math.max(translation.width / 2 + padding, original.width / 2 + originalPadding);
         if (coverRight && centre + half > freeRight - clear) {
             centre = Math.max(freeRight - clear - half, video.left + gripRoom + half);
         } else if (coverLeft && centre - half - gripRoom < freeLeft + clear) {
@@ -323,6 +366,11 @@ public final class SubtitleView extends View {
         if (translation.height > 0) translation.draw(canvas, left, top + original.height + gap, padding);
         if (editing) drawEditing(canvas);
         canvas.restore();
+    }
+
+    /** {@code value} within the range, or the captions' own place where a player too small leaves no range. */
+    private static float clamp(float value, float min, float max) {
+        return max < min ? 0 : Math.min(Math.max(value, min), max);
     }
 
     /** The extension's dashed outline round the captions and its grip of six dots to their left. */

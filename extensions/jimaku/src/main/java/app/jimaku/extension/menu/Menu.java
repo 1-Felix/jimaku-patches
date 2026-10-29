@@ -3,6 +3,7 @@ package app.jimaku.extension.menu;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Rect;
+import android.view.MotionEvent;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -37,6 +38,9 @@ public final class Menu {
 
         /** Whether the app shows its dark theme, or null where it can't say. */
         Boolean darkTheme();
+
+        /** A touch beside Settings, in screen coordinates: whether it is the captions' grip, which keeps the sheet open. */
+        boolean besideTouch(MotionEvent event);
     }
 
     private static final String MINUS = "−";
@@ -80,6 +84,7 @@ public final class Menu {
             settings = false;
             if (wasSettings) host.settingsShown(false);
         });
+        sheet.setBeside(event -> sheet == opened && settings && host.besideTouch(event));
         List<View> rows = main();
         sheet.show(rows);
         View checked = checkedRow;
@@ -88,6 +93,11 @@ public final class Menu {
 
     public void close() {
         if (sheet != null) sheet.close();
+    }
+
+    /** While the captions are dragged: Settings fades where it is over them. */
+    public void setSeeThrough(boolean value) {
+        if (sheet != null) sheet.setSeeThrough(value);
     }
 
     /** Builds the rows again from the session and the settings as they are now. */

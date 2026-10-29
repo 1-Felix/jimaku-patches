@@ -47,6 +47,7 @@ public final class Sheet {
     }
 
     private static final long SLIDE_MILLIS = 250;
+    private static final float SEE_THROUGH = 0.2f;
 
     private final Activity activity;
     private final Theme theme;
@@ -224,6 +225,12 @@ public final class Sheet {
             }
         });
         root.requestLayout();
+    }
+
+    /** While the captions are dragged in landscape with the sheet at the end edge: it fades, so they show under it. */
+    public void setSeeThrough(boolean value) {
+        boolean fade = value && atEnd && root.getWidth() > root.getHeight();
+        panel.animate().alpha(fade ? SEE_THROUGH : 1f).setDuration(150).start();
     }
 
     /**
