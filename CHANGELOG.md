@@ -1,3 +1,9 @@
+## [1.0.0-dev.9](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.8...v1.0.0-dev.9) (2026-10-29)
+
+### 🐛 Bug Fixes
+
+* account reads started before a sign-out or the preview's stand-in are left, a return confirms a payment once, Sign in greys its rows while the code is made, and the browser opens without sending YouTube to picture-in-picture ([26a34c0](https://github.com/1-Felix/jimaku-patches/commit/26a34c089b64d8f80439499598149911fe5fe5d0))
+
 ## [1.0.0-dev.8](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.7...v1.0.0-dev.8) (2026-10-29)
 
 ### ✨ New Features
