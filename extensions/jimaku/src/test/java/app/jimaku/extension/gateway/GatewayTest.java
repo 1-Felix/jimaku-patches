@@ -36,7 +36,7 @@ public class GatewayTest {
     @Before
     public void start() throws IOException {
         server = new TestServer();
-        gateway = new Gateway(server.origin(), USER_AGENT, 2_000);
+        gateway = new Gateway(server.origin(), USER_AGENT, 2_000, new MemoryInstalls());
         previousCookies = CookieHandler.getDefault();
     }
 
@@ -163,7 +163,7 @@ public class GatewayTest {
     @Test
     public void cancellingEndsAWaitingRead() throws Exception {
         server.answerLate("/videos/" + VIDEO, 10_000);
-        Gateway slow = new Gateway(server.origin(), USER_AGENT, 30_000);
+        Gateway slow = new Gateway(server.origin(), USER_AGENT, 30_000, new MemoryInstalls());
         Cancellation cancellation = new Cancellation();
         Thread canceller = new Thread(() -> {
             try {
@@ -193,7 +193,7 @@ public class GatewayTest {
         try (ServerSocket closed = new ServerSocket(0)) {
             port = closed.getLocalPort();
         }
-        Gateway away = new Gateway("http://127.0.0.1:" + port, USER_AGENT, 2_000);
+        Gateway away = new Gateway("http://127.0.0.1:" + port, USER_AGENT, 2_000, new MemoryInstalls());
         assertCode("offline", () -> away.lookup(VIDEO, new Cancellation()));
     }
 

@@ -25,18 +25,19 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import android.content.ContextWrapper;
 import android.widget.LinearLayout;
 
 import app.jimaku.extension.gateway.Gateway;
+import app.jimaku.extension.gateway.Requests;
 import app.jimaku.extension.gateway.Lookup;
 import app.jimaku.extension.menu.Menu;
 import app.jimaku.extension.menu.MenuModel;
 import app.jimaku.extension.overlay.PlayerButton;
 import app.jimaku.extension.overlay.SubtitleView;
 import app.jimaku.extension.session.VideoSession;
+import app.jimaku.extension.settings.KeptInstall;
 import app.jimaku.extension.settings.Look;
 import app.jimaku.extension.shared.Samples;
 import app.jimaku.extension.shared.Wording;
@@ -135,14 +136,9 @@ final class Player implements VideoSession.Display, Menu.Host {
     private String loggedWork = "nothing";
 
     Player() {
-        ExecutorService reads = Executors.newSingleThreadExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "Jimaku reads");
-            thread.setDaemon(true);
-            // An error a read throws ends this thread, never the app; the executor starts another.
-            thread.setUncaughtExceptionHandler((dead, fault) -> JimakuLog.fault("reads thread", fault));
-            return thread;
-        });
-        session = new VideoSession(new Gateway(), reads,
+        // An error a request throws ends its thread, never the app; the pool starts another.
+        ExecutorService requests = Requests.pool((dead, fault) -> JimakuLog.fault("requests thread", fault));
+        session = new VideoSession(new Gateway(KeptInstall.of(Morphe::context)), requests,
                 answer -> main.post(() -> Guard.run("gateway answer", answer)), this);
     }
 

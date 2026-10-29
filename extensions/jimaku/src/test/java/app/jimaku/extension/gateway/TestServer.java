@@ -9,8 +9,10 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -26,14 +28,27 @@ final class TestServer implements Closeable {
         final String line;
         /** Header names in lower case, each with every value sent. */
         final Map<String, List<String>> headers;
+        /** The body as sent, read by its Content-Length, as UTF-8. */
+        final String body;
 
-        Request(String line, Map<String, List<String>> headers) {
+        Request(String line, Map<String, List<String>> headers, String body) {
             this.line = line;
             this.headers = headers;
+            this.body = body;
         }
 
+        String method() {
+            return line.split(" ")[0];
+        }
+
+        /** The path with its query. */
         String path() {
             return line.split(" ")[1];
+        }
+
+        String header(String name) {
+            List<String> values = headers.get(name);
+            return values == null ? null : values.get(0);
         }
     }
 
@@ -52,7 +67,8 @@ final class TestServer implements Closeable {
     }
 
     private final ServerSocket server;
-    private final Map<String, Answer> answers = Collections.synchronizedMap(new LinkedHashMap<>());
+    /** Each path's answers in turn; the last one stays. */
+    private final Map<String, Deque<Answer>> answers = Collections.synchronizedMap(new LinkedHashMap<>());
     final List<Request> requests = new CopyOnWriteArrayList<>();
 
     TestServer() throws IOException {
@@ -66,16 +82,47 @@ final class TestServer implements Closeable {
         return "http://127.0.0.1:" + server.getLocalPort();
     }
 
+    /** Answers {@code path}, with or without a query, from now on. */
     void answer(String path, int status, String body) {
-        answers.put(path, new Answer(status, body, false, 0));
+        answers.put(path, new ArrayDeque<>(List.of(new Answer(status, body, false, 0))));
+    }
+
+    /** Answers {@code path} first with {@code first}, then with {@code status} and {@code body} from then on. */
+    void answerFirst(String path, int firstStatus, String first, int status, String body) {
+        answers.put(path, new ArrayDeque<>(List.of(new Answer(firstStatus, first, false, 0), new Answer(status, body, false, 0))));
     }
 
     void answerChunked(String path, int status, String body) {
-        answers.put(path, new Answer(status, body, true, 0));
+        answers.put(path, new ArrayDeque<>(List.of(new Answer(status, body, true, 0))));
     }
 
     void answerLate(String path, long delayMillis) {
-        answers.put(path, new Answer(200, "{}", false, delayMillis));
+        answerLate(path, delayMillis, 200, "{}");
+    }
+
+    void answerLate(String path, long delayMillis, int status, String body) {
+        answers.put(path, new ArrayDeque<>(List.of(new Answer(status, body, false, delayMillis))));
+    }
+
+    /** The requests made to {@code path}, with or without a query. */
+    List<Request> requestsTo(String path) {
+        List<Request> found = new ArrayList<>();
+        for (Request request : requests) if (withoutQuery(request.path()).equals(path)) found.add(request);
+        return found;
+    }
+
+    private static String withoutQuery(String path) {
+        int query = path.indexOf('?');
+        return query < 0 ? path : path.substring(0, query);
+    }
+
+    private Answer answerFor(String path) {
+        synchronized (answers) {
+            Deque<Answer> queue = answers.get(path);
+            if (queue == null) queue = answers.get(withoutQuery(path));
+            if (queue == null) return null;
+            return queue.size() > 1 ? queue.poll() : queue.peek();
+        }
     }
 
     private void acceptLoop() {
@@ -102,10 +149,19 @@ final class TestServer implements Closeable {
                 String name = header.substring(0, colon).trim().toLowerCase(Locale.ROOT);
                 headers.computeIfAbsent(name, key -> new ArrayList<>()).add(header.substring(colon + 1).trim());
             }
-            Request request = new Request(line, headers);
+            // Read as ISO-8859-1, one char a byte, so the bytes come back as they were sent.
+            List<String> length = headers.get("content-length");
+            char[] raw = new char[length == null ? 0 : Integer.parseInt(length.get(0))];
+            for (int read = 0; read < raw.length; ) {
+                int got = in.read(raw, read, raw.length - read);
+                if (got < 0) break;
+                read += got;
+            }
+            String sentBody = new String(new String(raw).getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8);
+            Request request = new Request(line, headers, sentBody);
             requests.add(request);
 
-            Answer answer = answers.get(request.path());
+            Answer answer = answerFor(request.path());
             if (answer == null) answer = new Answer(404, "{\"error\":\"not_found\"}", false, 0);
             if (answer.delayMillis > 0) Thread.sleep(answer.delayMillis);
             byte[] body = answer.body.getBytes(StandardCharsets.UTF_8);

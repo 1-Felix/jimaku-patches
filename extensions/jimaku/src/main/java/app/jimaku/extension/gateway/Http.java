@@ -1,6 +1,7 @@
 package app.jimaku.extension.gateway;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
@@ -10,9 +11,13 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.zip.GZIPInputStream;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLParameters;
@@ -20,20 +25,54 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
 /**
- * A plain HTTP/1.1 GET, written out by hand so the request carries exactly the headers listed
- * here. The platform's HttpURLConnection adds cookies from any cookie handler the app installs,
- * and has no way to turn that off for one request. No redirects are followed.
+ * A plain HTTP/1.1 request, GET or POST, written out by hand so it carries exactly the headers
+ * listed here. The platform's HttpURLConnection adds cookies from any cookie handler the app
+ * installs, and has no way to turn that off for one request. No redirects are followed.
  */
-final class HttpGet {
-    /** Subtitle documents of long videos stay well under this. */
+public final class Http {
+    /** Subtitle documents of long videos, and YouTube's answers, stay well under this. */
     static final int MAX_BODY_BYTES = 8 * 1024 * 1024;
     private static final int MAX_HEADER_LINE = 8 * 1024;
     private static final boolean ON_ANDROID = "Dalvik".equals(System.getProperty("java.vm.name"));
 
-    static final class Response {
-        final int status;
-        final Map<String, String> headers;
+    /** What to send: the method, the address, the headers past the fixed ones, and a POST's body. */
+    public static final class Request {
+        final String method;
+        final URI url;
+        final List<String[]> headers;
         final byte[] body;
+
+        private Request(String method, URI url, List<String[]> headers, byte[] body) {
+            this.method = method;
+            this.url = url;
+            this.headers = headers;
+            this.body = body;
+        }
+
+        public static Request get(URI url) {
+            return new Request("GET", url, Collections.emptyList(), null);
+        }
+
+        /** A POST of {@code body} as {@code contentType}, or of nothing where {@code body} is null. */
+        public static Request post(URI url, String contentType, byte[] body) {
+            List<String[]> headers = new ArrayList<>();
+            if (body != null) headers.add(new String[]{"Content-Type", contentType});
+            return new Request("POST", url, headers, body != null ? body : new byte[0]);
+        }
+
+        /** This request with one more header. */
+        public Request with(String name, String value) {
+            List<String[]> more = new ArrayList<>(headers);
+            more.add(new String[]{name, value});
+            return new Request(method, url, more, body);
+        }
+    }
+
+    public static final class Response {
+        public final int status;
+        /** Header names in lower case. */
+        public final Map<String, String> headers;
+        public final byte[] body;
 
         Response(int status, Map<String, String> headers, byte[] body) {
             this.status = status;
@@ -41,21 +80,27 @@ final class HttpGet {
             this.body = body;
         }
 
-        String text() {
+        public boolean ok() {
+            return status >= 200 && status < 300;
+        }
+
+        public String text() {
             return new String(body, StandardCharsets.UTF_8);
         }
     }
 
-    private HttpGet() {
+    private Http() {
     }
 
-    static Response get(URI url, String userAgent, int timeoutMillis, Cancellation cancellation) throws IOException {
+    public static Response send(Request request, String userAgent, int timeoutMillis, Cancellation cancellation) throws IOException {
+        URI url = request.url;
         String scheme = url.getScheme();
         boolean tls = "https".equals(scheme);
         if (!tls && !"http".equals(scheme)) throw new IOException("Unsupported scheme " + scheme);
         String host = url.getHost();
         int port = url.getPort() != -1 ? url.getPort() : tls ? 443 : 80;
         String path = url.getRawPath() + (url.getRawQuery() != null ? "?" + url.getRawQuery() : "");
+        byte[] head = head(request, path, url.getPort() != -1 ? host + ":" + port : host, userAgent);
 
         Socket plain = new Socket();
         cancellation.attach(plain);
@@ -80,15 +125,9 @@ final class HttpGet {
                 }
             }
 
-            String hostHeader = url.getPort() != -1 ? host + ":" + port : host;
-            String request = "GET " + path + " HTTP/1.1\r\n"
-                    + "Host: " + hostHeader + "\r\n"
-                    + "User-Agent: " + userAgent + "\r\n"
-                    + "Accept: application/json\r\n"
-                    + "Connection: close\r\n"
-                    + "\r\n";
             OutputStream out = socket.getOutputStream();
-            out.write(request.getBytes(StandardCharsets.ISO_8859_1));
+            out.write(head);
+            if (request.body != null) out.write(request.body);
             out.flush();
 
             InputStream in = new BufferedInputStream(socket.getInputStream());
@@ -99,7 +138,7 @@ final class HttpGet {
                 if (colon <= 0) throw new IOException("Malformed header");
                 headers.put(line.substring(0, colon).trim().toLowerCase(Locale.ROOT), line.substring(colon + 1).trim());
             }
-            return new Response(status, headers, readBody(in, headers));
+            return new Response(status, headers, decoded(readBody(in, headers), headers));
         } catch (IOException e) {
             if (cancellation.isCancelled()) throw new Cancellation.CancelledException();
             throw e;
@@ -109,6 +148,33 @@ final class HttpGet {
             Cancellation.closeQuietly(socket);
             Cancellation.closeQuietly(plain);
         }
+    }
+
+    /** The request line and headers: Host, User-Agent, Accept, the request's own, a body's length, and Connection. */
+    private static byte[] head(Request request, String path, String host, String userAgent) throws IOException {
+        StringBuilder head = new StringBuilder(request.method).append(' ').append(path).append(" HTTP/1.1\r\n");
+        header(head, "Host", host);
+        header(head, "User-Agent", userAgent);
+        header(head, "Accept", "application/json");
+        for (String[] each : request.headers) header(head, each[0], each[1]);
+        if (request.body != null) header(head, "Content-Length", String.valueOf(request.body.length));
+        header(head, "Connection", "close");
+        return head.append("\r\n").toString().getBytes(StandardCharsets.ISO_8859_1);
+    }
+
+    private static void header(StringBuilder head, String name, String value) throws IOException {
+        // A value from an answer, as the install's secret is, can't add a header of its own.
+        if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) throw new IOException("Malformed header value");
+        head.append(name).append(": ").append(value).append("\r\n");
+    }
+
+    /** No request asks for compression; a body sent compressed anyway is unpacked. */
+    private static byte[] decoded(byte[] body, Map<String, String> headers) throws IOException {
+        String encoding = headers.get("content-encoding");
+        if (encoding == null || !encoding.toLowerCase(Locale.ROOT).contains("gzip")) return body;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        copy(new GZIPInputStream(new ByteArrayInputStream(body)), out, -1);
+        return out.toByteArray();
     }
 
     private static int readStatus(String line) throws IOException {

@@ -4,18 +4,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import android.content.SharedPreferences;
-
 import org.junit.Test;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
 
 public class LookTest {
     @Test
     public void startsAtTheExtensionsDefaults() {
-        Look look = new Look(new Prefs());
+        Look look = new Look(new MemoryPrefs());
         assertFalse(look.on());
         assertEquals(100, look.translation());
         assertEquals(100, look.original());
@@ -27,7 +21,7 @@ public class LookTest {
 
     @Test
     public void stepsStopAtTheEndsOfTheirRanges() {
-        Look look = new Look(new Prefs());
+        Look look = new Look(new MemoryPrefs());
         look.stepTranslation(20);
         assertEquals(200, look.translation());
         look.stepTranslation(-30);
@@ -44,7 +38,7 @@ public class LookTest {
 
     @Test
     public void timingIsPerVideoAndKeptForThe200SetLast() {
-        Prefs prefs = new Prefs();
+        MemoryPrefs prefs = new MemoryPrefs();
         Look look = new Look(prefs);
         for (int i = 0; i <= 200; i++) look.stepTiming("v" + i, 3);
         assertEquals(0, look.timing("v0"));
@@ -66,7 +60,7 @@ public class LookTest {
 
     @Test
     public void resetAllPutsBackThisVideoAndLeavesOriginalCaptionAndOtherVideos() {
-        Look look = new Look(new Prefs());
+        Look look = new Look(new MemoryPrefs());
         look.setDual(true);
         look.stepTranslation(3);
         look.stepOriginal(-2);
@@ -85,7 +79,7 @@ public class LookTest {
 
     @Test
     public void whatWasSetIsReadBackByTheNextLook() {
-        Prefs prefs = new Prefs();
+        MemoryPrefs prefs = new MemoryPrefs();
         Look look = new Look(prefs);
         look.setOn(true);
         look.setDual(true);
@@ -102,125 +96,5 @@ public class LookTest {
 
         reopened.resetPosition();
         assertFalse(new Look(prefs).moved());
-    }
-
-    /** Preferences in memory, applied at once. */
-    private static final class Prefs implements SharedPreferences {
-        final Map<String, Object> values = new HashMap<>();
-
-        @Override
-        public Map<String, ?> getAll() {
-            return new HashMap<>(values);
-        }
-
-        @Override
-        public String getString(String key, String fallback) {
-            Object value = values.get(key);
-            return value instanceof String text ? text : fallback;
-        }
-
-        @Override
-        public Set<String> getStringSet(String key, Set<String> fallback) {
-            return fallback;
-        }
-
-        @Override
-        public int getInt(String key, int fallback) {
-            Object value = values.get(key);
-            return value instanceof Integer number ? number : fallback;
-        }
-
-        @Override
-        public long getLong(String key, long fallback) {
-            Object value = values.get(key);
-            return value instanceof Long number ? number : fallback;
-        }
-
-        @Override
-        public float getFloat(String key, float fallback) {
-            Object value = values.get(key);
-            return value instanceof Float number ? number : fallback;
-        }
-
-        @Override
-        public boolean getBoolean(String key, boolean fallback) {
-            Object value = values.get(key);
-            return value instanceof Boolean flag ? flag : fallback;
-        }
-
-        @Override
-        public boolean contains(String key) {
-            return values.containsKey(key);
-        }
-
-        @Override
-        public Editor edit() {
-            return new Editor() {
-                @Override
-                public Editor putString(String key, String value) {
-                    values.put(key, value);
-                    return this;
-                }
-
-                @Override
-                public Editor putStringSet(String key, Set<String> value) {
-                    values.put(key, value);
-                    return this;
-                }
-
-                @Override
-                public Editor putInt(String key, int value) {
-                    values.put(key, value);
-                    return this;
-                }
-
-                @Override
-                public Editor putLong(String key, long value) {
-                    values.put(key, value);
-                    return this;
-                }
-
-                @Override
-                public Editor putFloat(String key, float value) {
-                    values.put(key, value);
-                    return this;
-                }
-
-                @Override
-                public Editor putBoolean(String key, boolean value) {
-                    values.put(key, value);
-                    return this;
-                }
-
-                @Override
-                public Editor remove(String key) {
-                    values.remove(key);
-                    return this;
-                }
-
-                @Override
-                public Editor clear() {
-                    values.clear();
-                    return this;
-                }
-
-                @Override
-                public boolean commit() {
-                    return true;
-                }
-
-                @Override
-                public void apply() {
-                }
-            };
-        }
-
-        @Override
-        public void registerOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener listener) {
-        }
-
-        @Override
-        public void unregisterOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener listener) {
-        }
     }
 }

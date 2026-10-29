@@ -15,7 +15,7 @@ public class LiveGatewayTest {
     @Test
     public void readsTheRealGateway() throws Exception {
         assumeTrue("1".equals(System.getenv("JIMAKU_LIVE_GATEWAY")));
-        Gateway gateway = new Gateway();
+        Gateway gateway = new Gateway(new MemoryInstalls());
         Lookup lookup = gateway.lookup("bWCkSOafQNc", new Cancellation());
         assertEquals("ja", lookup.original);
         assertFalse(gateway.document("bWCkSOafQNc", "en", new Cancellation()).isEmpty());
@@ -26,6 +26,6 @@ public class LiveGatewayTest {
     public void refusesACertificateForAnotherHost() throws Exception {
         assumeTrue("1".equals(System.getenv("JIMAKU_LIVE_GATEWAY")));
         // wrong.host.badssl.com serves a certificate for *.badssl.com that doesn't name it.
-        new Gateway("https://wrong.host.badssl.com", Gateway.userAgent(), 10_000).lookup("bWCkSOafQNc", new Cancellation());
+        new Gateway("https://wrong.host.badssl.com", Gateway.userAgent(), 10_000, new MemoryInstalls()).lookup("bWCkSOafQNc", new Cancellation());
     }
 }
