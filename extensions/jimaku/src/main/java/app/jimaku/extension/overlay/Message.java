@@ -55,6 +55,11 @@ public final class Message extends ViewGroup {
 
     /** Long enough to read twice. */
     private static final long INFO_MILLIS = 6000;
+    /**
+     * TalkBack passes over a change made while a window closes, as the menu's sheet does when work
+     * starts: a message that has just appeared is read out once this has passed.
+     */
+    private static final long SETTLE_MILLIS = 1000;
     private static final int GROUND = 0x99000000;
     private static final int TEXT = 0xFFFFFFFF;
     private static final int LINK = 0xFF3EA6FF;
@@ -93,6 +98,10 @@ public final class Message extends ViewGroup {
     private final TextView yes;
     private final Close close;
     private final Runnable timeout = () -> Guard.run("message timeout", this::hide);
+    private final Runnable settled = () -> Guard.run("message settled", this::settled);
+    /** Whether the message appeared less than {@link #SETTLE_MILLIS} ago, and whether its words are to be read out then. */
+    private boolean appearing;
+    private boolean announceSettled;
     private Kind kind;
     private Work work;
     private Runnable run;
@@ -232,7 +241,7 @@ public final class Message extends ViewGroup {
         yes.setVisibility(VISIBLE);
         chip.endPadding = dp(4);
         line(null);
-        chip.setVisibility(VISIBLE);
+        appear();
         write(question, null, true);
         focus(no);
     }
@@ -256,6 +265,9 @@ public final class Message extends ViewGroup {
 
     public void hide() {
         removeCallbacks(timeout);
+        removeCallbacks(settled);
+        appearing = false;
+        announceSettled = false;
         kind = null;
         answer = null;
         chip.setVisibility(GONE);
@@ -303,8 +315,29 @@ public final class Message extends ViewGroup {
         close.setVisibility(VISIBLE);
         chip.endPadding = 0;
         line(null);
-        chip.setVisibility(VISIBLE);
+        appear();
         write(words, null, true);
+    }
+
+    /** Shows the chip. Where it wasn't showing, its words are read out once it has settled in. */
+    private void appear() {
+        if (chip.getVisibility() != VISIBLE) {
+            appearing = true;
+            announceSettled = false;
+            removeCallbacks(settled);
+            postDelayed(settled, SETTLE_MILLIS);
+        }
+        chip.setVisibility(VISIBLE);
+    }
+
+    /** The words written since the message appeared, read out where one of them was to be. */
+    private void settled() {
+        appearing = false;
+        if (!announceSettled) return;
+        announceSettled = false;
+        if (chip.getVisibility() != VISIBLE) return;
+        text.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);
+        text.setText(text.getText());
     }
 
     private static void label(TextView button, Action given) {
@@ -326,7 +359,8 @@ public final class Message extends ViewGroup {
             shown = bold;
         }
         if (TextUtils.equals(shown.toString(), text.getText().toString()) && sameBold(shown, text.getText())) return;
-        text.setAccessibilityLiveRegion(announce ? ACCESSIBILITY_LIVE_REGION_POLITE : ACCESSIBILITY_LIVE_REGION_NONE);
+        if (appearing && announce) announceSettled = true;
+        text.setAccessibilityLiveRegion(announce && !appearing ? ACCESSIBILITY_LIVE_REGION_POLITE : ACCESSIBILITY_LIVE_REGION_NONE);
         text.setText(shown);
     }
 
