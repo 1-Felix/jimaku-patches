@@ -1,3 +1,17 @@
+## [1.0.0-dev.4](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.3...v1.0.0-dev.4) (2026-10-29)
+
+### 🐛 Bug Fixes
+
+* Settings sample stands in when nothing is on screen yet or no translation is on, as in the extension ([51328ca](https://github.com/1-Felix/jimaku-patches/commit/51328caeeec3c5af6675f03027ae3624d9e58db2))
+* TalkBack announces Jimaku's sheet as YouTube's, with its drag handle, and reads Settings and every button as a button ([d82686d](https://github.com/1-Felix/jimaku-patches/commit/d82686df3cc2c06a808c822c2a006ac3d99fe4f2))
+
+### ✨ New Features
+
+* Captions dragged by their grip while Settings is open, within the extension's reach ([4d851c0](https://github.com/1-Felix/jimaku-patches/commit/4d851c0c586508b6b9f69394167ae488a210588a))
+* Jimaku button and menu in the player, in YouTube's own sheets ([017b7fe](https://github.com/1-Felix/jimaku-patches/commit/017b7fe431d348c227c40207ca1fda0c2d92ce49))
+* Settings slides to the right edge in fullscreen, with the captions moving in beside it ([efa5bea](https://github.com/1-Felix/jimaku-patches/commit/efa5bea31ac37fae41cb1a5eb15c550a03279d01))
+* The extension's whole menu model in Java, run on its shared menu cases; step 2's menu reads it signed out from the cache ([38159be](https://github.com/1-Felix/jimaku-patches/commit/38159bec967734aeede1a72c97c1ba3e46b5ea9b))
+
 ## [1.0.0-dev.3](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.2...v1.0.0-dev.3) (2026-10-29)
 
 ### ✨ New Features
