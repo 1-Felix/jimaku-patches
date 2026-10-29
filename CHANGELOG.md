@@ -1,3 +1,14 @@
+## [1.0.0-dev.6](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.5...v1.0.0-dev.6) (2026-10-29)
+
+### 🐛 Bug Fixes
+
+* TalkBack reads out a message that appears as the menu's sheet closes (youtube-app-making 4.8) ([9717832](https://github.com/1-Felix/jimaku-patches/commit/971783210a2f09dc5e740a8097b865108269314f))
+
+### ✨ New Features
+
+* Standard and Generate in the app as in the extension, with progress, Stop and the job picked up again (youtube-app-making 4.1-4.7) ([b68ae19](https://github.com/1-Felix/jimaku-patches/commit/b68ae190ed082492e998258336d0cdd8eeb19d0a))
+* the extension's message, the button's bar and "!", questions in place and Other languages' search (youtube-app-making 3.1–3.4) ([279b665](https://github.com/1-Felix/jimaku-patches/commit/279b66502891a347e080ac560643e037a00443a4))
+
 ## [1.0.0-dev.5](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.4...v1.0.0-dev.5) (2026-10-29)
 
 ### 🐛 Bug Fixes
