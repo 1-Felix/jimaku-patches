@@ -31,7 +31,7 @@ import java.util.List;
 /**
  * A sheet in the measures of YouTube's player sheets, in its own window over the activity: 8 dp
  * from the screen's sides and above the navigation bar in portrait, 384 dp wide and centred in
- * landscape, 16 dp corners, a drag handle, the screen behind dimmed by 60% black. It slides up when
+ * landscape, or at its end edge once moved there, 16 dp corners, a drag handle, the screen behind dimmed by 60% black. It slides up when
  * it opens and down when it closes; Back, a tap beside it or dragging it down closes it.
  */
 public final class Sheet {
@@ -58,6 +58,7 @@ public final class Sheet {
     private OnClosed onClosed;
     private Beside beside;
     private boolean closing;
+    private boolean atEnd;
     private int maxTop;
 
     /**
@@ -204,6 +205,49 @@ public final class Sheet {
         root.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
     }
 
+    /**
+     * In landscape, moves the sheet from the middle to the screen's end edge, 8 dp from it, so what
+     * the middle of the player shows stays in view beside it. It slides across; portrait is unchanged.
+     */
+    public void moveToEnd() {
+        if (atEnd) return;
+        atEnd = true;
+        int from = panel.getLeft();
+        panel.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                                       int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                panel.removeOnLayoutChangeListener(this);
+                if (left == from) return;
+                panel.setTranslationX(from - left);
+                panel.animate().translationX(0).setDuration(SLIDE_MILLIS).setInterpolator(new DecelerateInterpolator()).start();
+            }
+        });
+        root.requestLayout();
+    }
+
+    /**
+     * What the sheet covers once moved to the end edge in landscape, in screen pixels, where it
+     * will be after its slide; null in the middle, in portrait or before it is laid out.
+     */
+    public Rect coveredAtEnd() {
+        int width = root.getWidth();
+        int height = root.getHeight();
+        if (!atEnd || width <= height || width == 0) return null;
+        int side = theme.dp(8);
+        int panelWidth = panelWidth(width, true);
+        boolean rtl = root.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+        int left = rtl ? root.insets.left + side : width - root.insets.right - side - panelWidth;
+        int[] at = new int[2];
+        root.getLocationOnScreen(at);
+        return new Rect(at[0] + left, at[1], at[0] + left + panelWidth, at[1] + height);
+    }
+
+    private int panelWidth(int width, boolean landscape) {
+        int side = theme.dp(8);
+        return landscape ? Math.min(theme.dp(384), width - 2 * side) : width - 2 * side;
+    }
+
     public void close() {
         if (closing || !dialog.isShowing()) return;
         closing = true;
@@ -280,12 +324,17 @@ public final class Sheet {
             int height = MeasureSpec.getSize(heightMeasureSpec);
             boolean landscape = width > height;
             int side = theme.dp(8);
-            int panelWidth = landscape ? Math.min(theme.dp(384), width - 2 * side) : width - 2 * side;
+            int panelWidth = panelWidth(width, landscape);
             int bottom = insets.bottom + theme.dp(8);
             int top = landscape ? theme.dp(56) : Math.max(insets.top + theme.dp(8), maxTop + theme.dp(8));
             FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) panel.getLayoutParams();
             params.width = panelWidth;
             params.bottomMargin = bottom;
+            boolean end = landscape && atEnd;
+            boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+            params.gravity = Gravity.BOTTOM | (!end ? Gravity.CENTER_HORIZONTAL : rtl ? Gravity.LEFT : Gravity.RIGHT);
+            params.leftMargin = end && rtl ? insets.left + side : 0;
+            params.rightMargin = end && !rtl ? insets.right + side : 0;
             panel.maxHeight = Math.max(theme.dp(160), height - top - bottom);
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         }

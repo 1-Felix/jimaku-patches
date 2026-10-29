@@ -2,6 +2,7 @@ package app.jimaku.extension.menu;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Rect;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -59,6 +60,11 @@ public final class Menu {
     /** Whether Settings is the sheet on screen. */
     public boolean settingsShown() {
         return isOpen() && settings;
+    }
+
+    /** What Settings covers of the screen at its right edge in fullscreen, in screen pixels, or null. */
+    public Rect settingsCover() {
+        return settingsShown() ? sheet.coveredAtEnd() : null;
     }
 
     /** Opens the main sheet over {@code activity}, its top below {@code maxTop} in portrait. */
@@ -137,6 +143,8 @@ public final class Menu {
         if (!isOpen()) return;
         settings = true;
         sheet.replace(settingsRows());
+        // In fullscreen Settings moves to the right edge, so the captions it changes stay in view (Felix, 2026-10-29).
+        sheet.moveToEnd();
         host.settingsShown(true);
     }
 

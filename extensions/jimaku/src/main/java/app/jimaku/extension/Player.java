@@ -403,6 +403,13 @@ final class Player implements VideoSession.Display, Menu.Host {
         view.setOriginal(originalText, originalLang);
         view.setVideoArea(videoArea());
         view.setControlsTop(Morphe.controlsShown() ? controlsTop() : -1);
+        Rect cover = menu != null ? menu.settingsCover() : null;
+        if (cover != null) {
+            int[] at = new int[2];
+            view.getLocationOnScreen(at);
+            cover.offset(-at[0], -at[1]);
+        }
+        view.setCovered(cover);
     }
 
     /**

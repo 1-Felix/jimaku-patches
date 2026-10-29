@@ -140,6 +140,7 @@ public final class SubtitleView extends View {
     private final Rect video = new Rect();
     private final RectF box = new RectF();
     private final RectF grip = new RectF();
+    private final Rect covered = new Rect();
 
     private OnScreenChange onScreenChange;
     private int controlsTop = -1;
@@ -235,6 +236,18 @@ public final class SubtitleView extends View {
         return video;
     }
 
+    /**
+     * The part of this view Jimaku's Settings sheet covers at the screen's edge, or null. Captions
+     * that would reach under it move in beside it, as dropped captions move in at the player's
+     * edge; where they were dropped doesn't change.
+     */
+    public void setCovered(Rect area) {
+        if (area == null ? covered.isEmpty() : covered.equals(area)) return;
+        if (area == null) covered.setEmpty();
+        else covered.set(area);
+        invalidate();
+    }
+
     /** The top of the controls in this view's coordinates while they show, otherwise -1. */
     public void setControlsTop(int top) {
         if (controlsTop == top) return;
@@ -261,6 +274,23 @@ public final class SubtitleView extends View {
         float size = base * translationScale * fontScale;
         float originalSize = Math.max(ORIGINAL_MIN_DP * density, base * ORIGINAL_FRACTION) * originalScale * fontScale;
         int wrapWidth = Math.max(1, Math.round(video.width() * WRAP_FRACTION));
+        float padding = size * GROUND_PADDING_EMS;
+        float originalPadding = originalSize * GROUND_PADDING_EMS;
+
+        // Beside the Settings sheet the captions keep their outline, and the grip at their left, clear of it.
+        boolean coverRight = false, coverLeft = false;
+        if (!covered.isEmpty() && covered.left < video.right && covered.right > video.left) {
+            coverRight = covered.exactCenterX() >= video.exactCenterX();
+            coverLeft = !coverRight;
+        }
+        int freeLeft = coverLeft ? Math.min(video.right, covered.right) : video.left;
+        int freeRight = coverRight ? Math.max(video.left, covered.left) : video.right;
+        float clear = (OUTLINE_OFFSET_DP + 8) * density;
+        float gripRoom = editing ? GRIP_WIDTH_DP * density : 0;
+        if (coverLeft || coverRight) {
+            float room = freeRight - freeLeft - 2 * clear - gripRoom - 2 * Math.max(padding, originalPadding);
+            wrapWidth = Math.max(1, Math.min(wrapWidth, Math.round(room)));
+        }
         translation.layOut(size, wrapWidth);
         original.layOut(originalSize, wrapWidth);
         float widthDp = video.width() / density;
@@ -278,11 +308,13 @@ public final class SubtitleView extends View {
         bottom = Math.min(bottom, video.bottom);
         int top = Math.max(video.top, bottom - height);
         float centre = video.exactCenterX() + dx;
-        float left = centre - wrapWidth / 2f;
-
-        float padding = size * GROUND_PADDING_EMS;
-        float originalPadding = originalSize * GROUND_PADDING_EMS;
         float half = Math.max(translation.width / 2 + padding, original.width / 2 + originalPadding);
+        if (coverRight && centre + half > freeRight - clear) {
+            centre = Math.max(freeRight - clear - half, video.left + gripRoom + half);
+        } else if (coverLeft && centre - half - gripRoom < freeLeft + clear) {
+            centre = Math.min(freeLeft + clear + gripRoom + half, video.right - half);
+        }
+        float left = centre - wrapWidth / 2f;
         box.set(centre - half, top, centre + half, top + height);
 
         canvas.save();
