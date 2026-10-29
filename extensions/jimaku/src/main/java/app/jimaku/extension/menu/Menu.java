@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import app.jimaku.extension.Guard;
 import app.jimaku.extension.gateway.Lookup;
 import app.jimaku.extension.session.VideoSession;
 import app.jimaku.extension.settings.Look;
@@ -43,8 +44,6 @@ public final class Menu {
         boolean besideTouch(MotionEvent event);
     }
 
-    private static final String MINUS = "−";
-
     private final VideoSession session;
     private final Look look;
     private final Host host;
@@ -74,17 +73,23 @@ public final class Menu {
     /** Opens the main sheet over {@code activity}, its top below {@code maxTop} in portrait. */
     public void open(Activity activity, int maxTop) {
         if (isOpen()) return;
+        // A sheet whose activity went never tells it closed; its Settings ends here.
+        if (sheet != null && settings) host.settingsShown(false);
         settings = false;
         sheet = Sheet.open(activity, maxTop, host.darkTheme());
         Sheet opened = sheet;
-        sheet.setOnClosed(() -> {
+        sheet.setOnClosed(() -> Guard.run("menu closed", () -> {
             if (sheet != opened) return;
             boolean wasSettings = settings;
             sheet = null;
             settings = false;
             if (wasSettings) host.settingsShown(false);
+        }));
+        sheet.setBeside(event -> {
+            boolean[] taken = {false};
+            Guard.run("captions drag", () -> taken[0] = sheet == opened && settings && host.besideTouch(event));
+            return taken[0];
         });
-        sheet.setBeside(event -> sheet == opened && settings && host.besideTouch(event));
         List<View> rows = main();
         sheet.show(rows);
         View checked = checkedRow;
@@ -196,14 +201,12 @@ public final class Menu {
     }
 
     /** A size or the background as Settings reads it: "110%". */
-    static String percent(int value) {
-        return Wording.t(Wording.SETTINGS_PERCENT, String.valueOf(value));
+    private static String percent(int value) {
+        return MenuModel.percent(Locale.getDefault(), value);
     }
 
     /** A timing in tenths of a second as Settings reads it: "+0.3 s", "0.0 s", "−0.3 s". */
-    static String seconds(int tenths) {
-        String sign = tenths > 0 ? "+" : tenths < 0 ? MINUS : "";
-        int whole = Math.abs(tenths);
-        return Wording.t(Wording.SETTINGS_SECONDS, sign + (whole / 10) + "." + (whole % 10));
+    private static String seconds(int tenths) {
+        return MenuModel.seconds(Locale.getDefault(), tenths / 10.0);
     }
 }

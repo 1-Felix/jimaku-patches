@@ -19,6 +19,8 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import app.jimaku.extension.Guard;
+
 /**
  * The rows of Jimaku's sheets, in the measures of YouTube's player sheets: 48 dp high, a 24 dp
  * icon 16 dp in, the label 52 dp in at 16 sp, a value in the secondary colour at the row's end.
@@ -189,7 +191,7 @@ public final class Rows {
         row.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         if (press != null) {
             row.setBackground(ripple(theme, new ColorDrawable(Color.WHITE)));
-            row.setOnClickListener(v -> press.run());
+            row.setOnClickListener(v -> Guard.run("menu press", press));
         }
         return row;
     }
@@ -233,7 +235,7 @@ public final class Rows {
         button.setAlpha(enabled ? 1f : theme.disabledAlpha / 255f);
         if (enabled && press != null) {
             button.setBackground(ripple(theme, new ColorDrawable(Color.WHITE)));
-            button.setOnClickListener(v -> press.run());
+            button.setOnClickListener(v -> Guard.run("menu press", press));
         }
         readAsButton(button);
         return button;
@@ -330,7 +332,7 @@ public final class Rows {
             setContentDescription(name);
             readAsButton(this);
             if (enabled) {
-                setOnClickListener(v -> press.run());
+                setOnClickListener(v -> Guard.run("menu press", press));
                 setBackground(new RippleDrawable(ColorStateList.valueOf(theme.pressed), null, null));
             } else {
                 setAlpha(theme.disabledAlpha / 255f);

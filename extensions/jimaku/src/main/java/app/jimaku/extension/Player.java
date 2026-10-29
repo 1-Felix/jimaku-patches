@@ -138,9 +138,12 @@ final class Player implements VideoSession.Display, Menu.Host {
         ExecutorService reads = Executors.newSingleThreadExecutor(runnable -> {
             Thread thread = new Thread(runnable, "Jimaku reads");
             thread.setDaemon(true);
+            // An error a read throws ends this thread, never the app; the executor starts another.
+            thread.setUncaughtExceptionHandler((dead, fault) -> JimakuLog.fault("reads thread", fault));
             return thread;
         });
-        session = new VideoSession(new Gateway(), reads, main::post, this);
+        session = new VideoSession(new Gateway(), reads,
+                answer -> main.post(() -> Guard.run("gateway answer", answer)), this);
     }
 
     /** The settings, read once there is a context to read them from. */
@@ -172,6 +175,11 @@ final class Player implements VideoSession.Display, Menu.Host {
         editing = shown;
         heldText = null;
         heldOriginal = null;
+        // Settings closed under a drag: its touches no longer come, so the drag ends here, unsaved.
+        if (!shown && drag != null) {
+            drag = null;
+            if (view != null) view.setDragging(false);
+        }
         if (view != null) view.setEditing(shown);
         update();
     }
@@ -367,6 +375,8 @@ final class Player implements VideoSession.Display, Menu.Host {
     public void show(String video, String lang, List<Line> lines) {
         cursor = lines == null ? null : new LineCursor(lines);
         this.lang = lang;
+        // Another language on screen can leave the original no longer repeating it.
+        if (originalShown()) session.askOriginal();
         if (menu != null) menu.refresh();
         update();
     }
@@ -412,19 +422,21 @@ final class Player implements VideoSession.Display, Menu.Host {
             session.open(videoId, preferred(), settings.on());
         }
 
-        boolean original = originalCursor != null && originalShown();
+        // Asked once per update, as it runs every frame and builds the menu's input each time.
+        boolean originalOn = originalShown();
+        boolean original = originalCursor != null && originalOn;
         boolean fullSize = settings != null && !isShort && Morphe.showsSubtitles(type);
         boolean mayShow = fullSize && (cursor != null || original || editing);
         // The button is wanted whether or not subtitles show: after YouTube made its activity anew,
         // the overlay is found again here, as Morphe doesn't report the new controls.
         if (fullSize && (view == null || !view.isAttachedToWindow())) findOverlayInActivity();
         boolean canShow = mayShow && isOnScreen();
-        if (canShow) draw(original);
+        if (canShow) draw(original, originalOn);
         else if (view != null) {
             view.setText(null, null);
             view.setOriginal(null, null);
         }
-        updateButton();
+        updateButton(originalOn);
 
         boolean playing = isPlaying();
         schedule(canShow && playing, canShow && !playing);
@@ -436,7 +448,7 @@ final class Player implements VideoSession.Display, Menu.Host {
                 && view.getWidth() > 0 && view.getHeight() > 0;
     }
 
-    private void draw(boolean showOriginal) {
+    private void draw(boolean showOriginal, boolean originalOn) {
         Look settings = look();
         // A later timing shows each caption that much later: on screen is the caption of that much earlier.
         double t = Morphe.videoTimeMillis() / 1000.0 - settings.timing(session.video()) / 10.0;
@@ -464,7 +476,7 @@ final class Player implements VideoSession.Display, Menu.Host {
                 heldOriginal = null;
                 textLang = preferred();
                 text = Samples.line(textLang);
-                originalText = originalLang != null && !originalLang.equals(textLang) && originalShown()
+                originalText = originalLang != null && !originalLang.equals(textLang) && originalOn
                         ? Samples.line(originalLang) : null;
             } else {
                 heldText = text;
@@ -539,8 +551,12 @@ final class Player implements VideoSession.Display, Menu.Host {
 
     /** The button's fill and name, from what shows, as the extension's describeState() has them. */
     private void updateButton() {
+        if (button != null) updateButton(originalShown());
+    }
+
+    private void updateButton(boolean originalOn) {
         if (button == null) return;
-        boolean alone = cursor == null && originalCursor != null && originalShown();
+        boolean alone = cursor == null && originalCursor != null && originalOn;
         Lookup lookup = session.lookup();
         String wanted = session.wanted();
         String language = lang != null ? lang : wanted != null ? wanted
@@ -701,16 +717,8 @@ final class Player implements VideoSession.Display, Menu.Host {
         if (controlsRowSearched) return controlsRow;
         controlsRowSearched = true;
         Arrays.fill(controlsRow, null);
-        if (overlay == null || overlay.getId() == View.NO_ID) return controlsRow;
-        Resources resources = overlay.getResources();
-        String resourcePackage;
-        try {
-            resourcePackage = resources.getResourcePackageName(overlay.getId());
-        } catch (Resources.NotFoundException e) {
-            return controlsRow;
-        }
         for (int i = 0; i < CONTROLS_ROW.length; i++) {
-            int id = resources.getIdentifier(CONTROLS_ROW[i], "id", resourcePackage);
+            int id = resourceId(CONTROLS_ROW[i]);
             if (id != 0) controlsRow[i] = overlay.findViewById(id);
         }
         StringBuilder found = new StringBuilder();

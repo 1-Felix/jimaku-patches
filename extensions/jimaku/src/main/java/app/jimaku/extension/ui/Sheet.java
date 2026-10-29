@@ -186,8 +186,9 @@ public final class Sheet {
         beside = listener;
     }
 
+    /** Open and on screen: a dialog whose activity was destroyed still says it shows, but never closes. */
     public boolean isOpen() {
-        return dialog.isShowing() && !closing;
+        return dialog.isShowing() && !closing && !activity.isDestroyed();
     }
 
     /** Puts {@code rows} in the sheet in place of what it held, keeping its scroll where it can. */
