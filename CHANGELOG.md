@@ -1,3 +1,9 @@
+## [1.0.0-dev.7](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.6...v1.0.0-dev.7) (2026-10-29)
+
+### 🐛 Bug Fixes
+
+* what the viewer presses while a video is looked up stays their choice, and no reading message is left behind ([9fad71d](https://github.com/1-Felix/jimaku-patches/commit/9fad71d62b50798de627160596e80de9a5429b9a))
+
 ## [1.0.0-dev.6](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.5...v1.0.0-dev.6) (2026-10-29)
 
 ### 🐛 Bug Fixes
