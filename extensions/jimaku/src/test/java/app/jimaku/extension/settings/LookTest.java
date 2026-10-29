@@ -2,9 +2,13 @@ package app.jimaku.extension.settings;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
+
+import app.jimaku.extension.menu.Version;
 
 public class LookTest {
     @Test
@@ -17,6 +21,22 @@ public class LookTest {
         assertFalse(look.moved());
         assertEquals(0, look.timing("a"));
         assertTrue(look.atDefaults("a"));
+    }
+
+    @Test
+    public void keepsTheModeOnceTheSwitchIsFlipped() {
+        MemoryPrefs prefs = new MemoryPrefs();
+        Look look = new Look(prefs);
+        assertNull(look.mode());
+        int[] told = {0};
+        look.setOnChange(() -> told[0]++);
+        look.setMode(Version.STANDARD);
+        look.setMode(Version.STANDARD);
+        assertEquals(1, told[0]);
+        assertEquals(Version.STANDARD, new Look(prefs).mode());
+        look.setMode(Version.PREMIUM);
+        assertEquals(Version.PREMIUM, new Look(prefs).mode());
+        assertThrows(IllegalArgumentException.class, () -> look.setMode(Version.UPLOADED));
     }
 
     @Test

@@ -11,15 +11,18 @@ import app.jimaku.extension.jobs.JobKind;
 import app.jimaku.extension.jobs.JobState;
 import app.jimaku.extension.jobs.TimeLeft;
 import app.jimaku.extension.jobs.TimedJob;
+import app.jimaku.extension.gateway.Me;
 import app.jimaku.extension.overlay.Message;
+import app.jimaku.extension.session.AccountState;
 import app.jimaku.extension.shared.Wording;
 
 /**
  * The message and the button in each of their states, for screenshots of their look, in a build
  * made with {@code -Pjimaku.preview=true} only. The state is set from the shell, as
  * {@code adb shell settings put global jimaku_preview progress}, and read at most twice a second:
- * progress, reading, ask, failure, daily, busy, stopped, or anything else for none. The words are the
- * extension's and the bar is the ported estimate's, for a 20-minute video translated to German.
+ * progress, reading, ask, failure, daily, busy, stopped, signed-in, or anything else for none. The
+ * words are the extension's and the bar is the ported estimate's, for a 20-minute video translated to
+ * German. Signed in, the menu reads a stand-in account with 300 minutes and the offer open.
  */
 final class Preview {
     private static final String SETTING = "jimaku_preview";
@@ -33,7 +36,16 @@ final class Preview {
         void off();
     }
 
+    private static final String SIGNED_IN = "{\"balance\":18000,\"signedIn\":true,\"accountId\":\"preview\",\"promotion\":"
+            + "{\"availability\":\"open\",\"eligibility\":\"eligible\",\"text\":\"\",\"minutes\":60,\"endsAt\":1796083200000,"
+            + "\"totalUsed\":3,\"totalLimit\":415,\"totalRemaining\":412,\"dailyUsed\":1,\"dailyLimit\":50,\"retryAt\":null}}";
+
+    private final AccountState account;
     private String applied;
+
+    Preview(AccountState account) {
+        this.account = account;
+    }
     private long readAt;
 
     void apply(Context context, Message message, Work button) {
@@ -50,6 +62,7 @@ final class Preview {
     }
 
     private void show(String state, Message message, Work button) {
+        account.pretend(state.equals("signed-in") ? Me.parse(SIGNED_IN) : null);
         Locale locale = Locale.getDefault();
         Message.Action stop = new Message.Action(Wording.t(Wording.ACTION_STOP), () -> message.ask(Wording.t(Wording.ASK_STOP, NAME),
                 () -> message.info(Wording.t(Wording.TOAST_STOPPED, NAME))));

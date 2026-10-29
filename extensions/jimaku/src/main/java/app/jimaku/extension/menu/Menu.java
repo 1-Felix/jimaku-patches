@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Locale;
 
 import app.jimaku.extension.Guard;
+import app.jimaku.extension.gateway.Me;
+import app.jimaku.extension.session.AccountState;
 import app.jimaku.extension.settings.Look;
 import app.jimaku.extension.shared.Wording;
 import app.jimaku.extension.ui.Icons;
@@ -20,9 +22,9 @@ import app.jimaku.extension.ui.Sheet;
 import app.jimaku.extension.ui.Theme;
 
 /**
- * Jimaku's menu in a sheet of YouTube's kind: the languages as the extension's menu model has them
- * for a signed-out viewer, Other languages, Original caption and Settings, each of the last two
- * replacing the main sheet. Its rows are built again after every change, so they always read the
+ * Jimaku's menu in a sheet of YouTube's kind: the Premium switch, or Sign in, then the languages as
+ * the extension's menu model has them, Other languages, Original caption, Settings and Account, each
+ * of the last two replacing the main sheet. Its rows are built again after every change, so they always read the
  * video and the settings as they are. A row that asks first turns into its question in place, with
  * ✕ and ✓; a question its row no longer asks is dropped. Main thread only.
  */
@@ -61,9 +63,18 @@ public final class Menu {
 
         /** A touch beside Settings, in screen coordinates: whether it is the captions' grip, which keeps the sheet open. */
         boolean besideTouch(MotionEvent event);
+
+        /** The account, one for the app. */
+        AccountState accountState();
+
+        /** The Premium switch, flipped: the mode for every video, which what shows follows. */
+        void flipMode(Version mode);
     }
 
-    private enum Panel { MAIN, OTHER, SETTINGS }
+    /** The extension has no Account row, its popup being the account; the app's menu ends with one. */
+    static final String ACCOUNT = "Account";
+
+    private enum Panel { MAIN, OTHER, SETTINGS, ACCOUNT }
 
     /** The row asking its question, in the panel it was asked in, with what its ✓ does and the words last announced. */
     private static final class Asking {
@@ -157,6 +168,7 @@ public final class Menu {
             case MAIN -> main();
             case OTHER -> other();
             case SETTINGS -> settingsRows();
+            case ACCOUNT -> accountRows();
         };
     }
 
@@ -167,6 +179,15 @@ public final class Menu {
         MainPanel main = MenuModel.mainPanel(input);
         List<View> rows = new ArrayList<>();
         checkedRow = null;
+        rows.add(Rows.space(context, theme, 8));
+        if (main.signedIn) {
+            Version flipped = main.premium ? Version.STANDARD : Version.PREMIUM;
+            rows.add(Rows.premium(context, theme, Wording.t(Wording.MENU_PREMIUM), main.value, main.premium, () -> host.flipMode(flipped)));
+        } else {
+            rows.add(Rows.signedOut(context, theme, Wording.t(Wording.MENU_PREMIUM), Wording.t(Wording.POPUP_SIGN_IN),
+                    Wording.t(Wording.MENU_PREMIUM_SIGN_IN), this::signIn));
+        }
+        rows.add(Rows.divider(context, theme));
         rows.add(Rows.space(context, theme, 8));
         if (main.note != null) {
             rows.add(Rows.note(context, theme, main.note));
@@ -188,6 +209,7 @@ public final class Menu {
             refresh();
         }));
         rows.add(Rows.submenu(context, theme, Icons.TUNE, Wording.t(Wording.MENU_SETTINGS), this::openSettings));
+        rows.add(Rows.submenu(context, theme, Icons.ACCOUNT, ACCOUNT, this::openAccount));
         return rows;
     }
 
@@ -284,8 +306,7 @@ public final class Menu {
                 close();
                 host.busy();
             }
-            // Minutes are bought from step 4 on: signed out no row offers it.
-            case BUY -> close();
+            case BUY -> openAccount();
         }
     }
 
@@ -308,6 +329,64 @@ public final class Menu {
         top.add(Rows.space(context, theme, 8));
         top.add(Rows.searchRow(context, theme, search));
         sheet.replace(top, other());
+    }
+
+    /** Sign in, from the top row: the menu closes for jimaku.app's page, as the extension's closes for Google's. */
+    private void signIn() {
+        close();
+        host.accountState().signIn();
+    }
+
+    /** Account in place of the open sheet, read again as it opens. */
+    public void openAccount() {
+        if (!isOpen()) return;
+        if (panel == Panel.SETTINGS) host.settingsShown(false);
+        panel = Panel.ACCOUNT;
+        asking = null;
+        search = null;
+        sheet.replace(accountRows());
+        host.accountState().read();
+    }
+
+    /**
+     * Account, as the popup has it: signed in, the minutes left, the launch offer while it is open,
+     * the amounts to buy with the rate, and Sign out; signed out, the offer and Sign in.
+     */
+    private List<View> accountRows() {
+        Context context = sheet.context();
+        Theme theme = sheet.theme();
+        AccountState account = host.accountState();
+        Me me = account.me();
+        boolean signedIn = account.signedIn();
+        boolean free = !account.busy();
+        List<View> rows = new ArrayList<>();
+        rows.add(Rows.title(context, theme, ACCOUNT, null, false, null));
+        rows.add(Rows.divider(context, theme));
+        if (signedIn) {
+            rows.add(Rows.labelled(context, theme, Wording.t(Wording.ACCOUNT_TITLE), MenuModel.minutesText(Locale.getDefault(), me.balance)));
+        }
+        String note = account.offerNote();
+        if (note != null) {
+            rows.add(Rows.note(context, theme, note));
+        } else if (me != null && me.promotion.offered()) {
+            String claim = signedIn ? Wording.t(Wording.POPUP_CLAIM) : Wording.t(Wording.POPUP_OFFER_SIGN_IN).replace("\n", " ");
+            rows.add(Rows.withAction(context, theme, Wording.t(Wording.POPUP_OFFER_TITLE), "", claim, free,
+                    signedIn ? account::claim : account::signIn));
+        }
+        rows.add(Rows.divider(context, theme));
+        if (!signedIn) {
+            rows.add(Rows.action(context, theme, Wording.t(Wording.POPUP_SIGN_IN), free, account::signIn));
+            return rows;
+        }
+        rows.add(Rows.caption(context, theme, Wording.t(Wording.ACTION_BUY_MINUTES)));
+        for (int cents : AccountState.AMOUNTS) {
+            String amount = Wording.t(Wording.ACCOUNT_AMOUNT, String.valueOf(cents / 100), String.valueOf(cents * 60 / 100));
+            rows.add(Rows.action(context, theme, amount, free, () -> account.buy(cents)));
+        }
+        rows.add(Rows.footnote(context, theme, Wording.t(Wording.ACCOUNT_RATE)));
+        rows.add(Rows.divider(context, theme));
+        rows.add(Rows.action(context, theme, Wording.t(Wording.ACTION_SIGN_OUT), free, account::signOut));
+        return rows;
     }
 
     private void openSettings() {

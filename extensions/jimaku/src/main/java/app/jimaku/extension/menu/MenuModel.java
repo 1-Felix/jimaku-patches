@@ -319,8 +319,12 @@ public final class MenuModel {
         if (!signedIn(input)) return "";
         if (effectiveMode(input) == Version.STANDARD) return t(input, Wording.MENU_STANDARD_FREE);
         // The last minutes seen stay, even where they can't be read just now.
-        double seconds = input.me.balance;
-        return t(input, Wording.MENU_MINUTES_LEFT, seconds < 0 ? MINUS + minutesOwed(seconds) : String.valueOf(minutesLeft(seconds)));
+        return minutesText(input.locale, input.me.balance);
+    }
+
+    /** The minutes beside the switch and in Account: "300 min left", or "−5 min left" where they are overspent. */
+    public static String minutesText(Locale locale, double seconds) {
+        return Wording.t(locale, Wording.MENU_MINUTES_LEFT, seconds < 0 ? MINUS + minutesOwed(seconds) : String.valueOf(minutesLeft(seconds)));
     }
 
     public static MainPanel mainPanel(MenuInput input) {

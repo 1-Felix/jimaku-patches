@@ -33,11 +33,14 @@ import app.jimaku.extension.subtitles.Line;
  * install, created on first need; only those requests carry its secret. Calls block; run them off
  * the main thread.
  */
-public final class Gateway implements Reads, Writes {
+public final class Gateway implements Reads, Writes, Accounts {
     public static final String ORIGIN = "https://api.jimaku.app";
     private static final int TIMEOUT_MILLIS = 15_000;
     private static final Pattern VIDEO_ID = Pattern.compile("[A-Za-z0-9_-]{11}");
     private static final String JSON = "application/json";
+    private static final Pattern LINK_CODE = Pattern.compile("[A-Za-z0-9_-]{32,64}");
+    private static final Pattern SESSION = Pattern.compile("cs_(?:test_|live_)?[A-Za-z0-9]{1,240}");
+    private static final Pattern PAYMENT_INTENT = Pattern.compile("pi_[A-Za-z0-9_]{1,240}");
 
     private final String origin;
     private final String userAgent;
@@ -182,6 +185,100 @@ public final class Gateway implements Reads, Writes {
         Object lang = from.opt("lang");
         if (!(lang instanceof String) || !Languages.isLanguageCode((String) lang)) throw new GatewayException("bad_answer");
         return new CaptionResult(lines, (String) lang, lines(from.opt("lines")));
+    }
+
+    @Override
+    public Me me(Cancellation cancellation) throws GatewayException {
+        Http.Request request = get("/me");
+        Http.Response response = installs.load() != null ? authed(request, cancellation) : send(request, cancellation);
+        if (!response.ok()) throw refusal(response);
+        return Me.read(object(response));
+    }
+
+    @Override
+    public String linkCode(Cancellation cancellation) throws GatewayException {
+        Http.Response response = authed(Http.Request.post(uri("/account/link-codes"), null, null), cancellation);
+        if (!response.ok()) throw refusal(response);
+        Object code = object(response).opt("code");
+        if (!(code instanceof String) || !LINK_CODE.matcher((String) code).matches()) throw new GatewayException("bad_answer");
+        return (String) code;
+    }
+
+    @Override
+    public double claim(String accountId, Cancellation cancellation) throws GatewayException {
+        byte[] body = ("{\"accountId\":" + JSONObject.quote(accountId) + "}").getBytes(StandardCharsets.UTF_8);
+        Http.Response response = authed(Http.Request.post(uri("/claim"), JSON, body), cancellation);
+        if (!response.ok()) throw refusal(response);
+        JSONObject answer = object(response);
+        Object balance = answer.opt("balance"), claimed = answer.opt("accountId");
+        if (!isSafeInteger(balance) || !(claimed instanceof String) || ((String) claimed).isEmpty()
+                || !Boolean.TRUE.equals(answer.opt("granted"))) {
+            throw new GatewayException("bad_answer");
+        }
+        if (!claimed.equals(accountId)) throw new GatewayException("account_changed");
+        return ((Number) balance).doubleValue();
+    }
+
+    /** An amount the gateway sells: €1 to €100 in whole euros. */
+    public static boolean isPurchaseAmount(int cents) {
+        return cents >= 100 && cents <= 10_000 && cents % 100 == 0;
+    }
+
+    public static boolean isPurchaseSession(String value) {
+        return value != null && SESSION.matcher(value).matches();
+    }
+
+    @Override
+    public Checkout checkout(int cents, Cancellation cancellation) throws GatewayException {
+        if (!isPurchaseAmount(cents)) throw new GatewayException("invalid_amount");
+        byte[] body = ("{\"cents\":" + cents + ",\"from\":\"app\"}").getBytes(StandardCharsets.UTF_8);
+        Http.Response response = authed(Http.Request.post(uri("/checkout"), JSON, body), cancellation);
+        if (!response.ok()) throw refusal(response);
+        JSONObject answer = object(response);
+        Object url = answer.opt("url"), session = answer.opt("session");
+        if (!(url instanceof String) || !(session instanceof String) || !isPurchaseSession((String) session)) {
+            throw new GatewayException("bad_answer");
+        }
+        URI page;
+        try {
+            page = new URI((String) url);
+        } catch (java.net.URISyntaxException e) {
+            throw new GatewayException("bad_answer", e);
+        }
+        // Only Stripe's own page, as the extension's readCheckout has it.
+        if (!"https".equals(page.getScheme()) || !"checkout.stripe.com".equals(page.getHost()) || page.getPort() != -1
+                || page.getRawUserInfo() != null) {
+            throw new GatewayException("bad_answer");
+        }
+        return new Checkout(page.toString(), (String) session);
+    }
+
+    @Override
+    public Purchase confirm(String session, Cancellation cancellation) throws GatewayException {
+        if (!isPurchaseSession(session)) throw new GatewayException("invalid_session");
+        Http.Response response = authed(Http.Request.post(uri("/purchases/" + segment(session) + "/confirm"), null, null), cancellation);
+        if (!response.ok()) throw refusal(response);
+        JSONObject answer = object(response);
+        Double balance = numberOrNull(answer.opt("balance")), minutes = numberOrNull(answer.opt("minutes"));
+        Object intent = answer.opt("paymentIntent");
+        if (balance == null || minutes == null || minutes != Math.rint(minutes) || minutes <= 0 || numberOrNull(answer.opt("paidAt")) == null
+                || !(intent instanceof String) || !PAYMENT_INTENT.matcher((String) intent).matches()) {
+            throw new GatewayException("bad_answer");
+        }
+        return new Purchase(balance, minutes.longValue());
+    }
+
+    @Override
+    public Me unlink(Cancellation cancellation) throws GatewayException {
+        Http.Response response = authed(Http.Request.post(uri("/account/unlink"), null, null), cancellation);
+        if (!response.ok()) throw refusal(response);
+        return Me.read(object(response));
+    }
+
+    private static boolean isSafeInteger(Object value) {
+        if (!(value instanceof Number)) return false;
+        double number = ((Number) value).doubleValue();
+        return Math.abs(number) <= 9007199254740991.0 && number == Math.rint(number);
     }
 
     /** The install, created the first time something needs one. Concurrent callers share one creation. */

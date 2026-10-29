@@ -2,10 +2,13 @@ package app.jimaku.extension;
 
 import android.app.Activity;
 import android.app.Application;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.Resources;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -41,10 +44,13 @@ import app.jimaku.extension.jobs.Glide;
 import app.jimaku.extension.menu.Menu;
 import app.jimaku.extension.menu.MenuInput;
 import app.jimaku.extension.menu.Subtitle;
+import app.jimaku.extension.menu.Version;
 import app.jimaku.extension.overlay.Message;
 import app.jimaku.extension.overlay.PlayerButton;
 import app.jimaku.extension.overlay.SubtitleView;
+import app.jimaku.extension.session.AccountState;
 import app.jimaku.extension.session.VideoSession;
+import app.jimaku.extension.settings.KeptAccount;
 import app.jimaku.extension.settings.KeptInstall;
 import app.jimaku.extension.settings.KeptPending;
 import app.jimaku.extension.settings.KeptResults;
@@ -78,6 +84,9 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final VideoSession session;
+    /** The account, one for every video. */
+    private final AccountState account;
+    private final MessageToast toast = new MessageToast();
     private final Choreographer.FrameCallback frame = frameTimeNanos -> Guard.run("frame", () -> {
         framePosted = false;
         update();
@@ -172,7 +181,7 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
     private boolean topBarMissingLogged;
 
     private volatile YouTube youtube;
-    private final Preview preview = BuildConfig.PREVIEW ? new Preview() : null;
+    private final Preview preview;
 
     private boolean framePosted;
     private boolean pausedCheckPosted;
@@ -197,7 +206,30 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
             }
         };
         session = new VideoSession(gateway, gateway, new Tracks(), KeptResults.of(Morphe::context), KeptPending.of(Morphe::context), this,
-                new MessageToast(), timer, requests, answer -> main.post(() -> Guard.run("gateway answer", answer)), this);
+                toast, timer, requests, answer -> main.post(() -> Guard.run("gateway answer", answer)), this);
+        account = new AccountState(gateway, KeptAccount.of(Morphe::context), requests,
+                answer -> main.post(() -> Guard.run("account answer", answer)), timer, this::browse, toast);
+        preview = BuildConfig.PREVIEW ? new Preview(account) : null;
+        account.addListener(() -> {
+            if (menu != null) menu.refresh();
+            session.accountChanged();
+        });
+    }
+
+    /** Opens {@code url} in the phone's browser: jimaku.app's sign-in, or Stripe's payment page. */
+    private boolean browse(String url) {
+        Activity current = activity.get();
+        Context context = current != null && !current.isFinishing() ? current : Morphe.context();
+        if (context == null) return false;
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE);
+        if (!(context instanceof Activity)) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            context.startActivity(intent);
+            return true;
+        } catch (ActivityNotFoundException | SecurityException e) {
+            JimakuLog.warn("No browser for " + Uri.parse(url).getHost() + ": " + e);
+            return false;
+        }
     }
 
     /** YouTube's caption tracks and their lines, asked as the installed app, once there is a context to say which app. */
@@ -228,10 +260,15 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
     }
 
     /** The session's message, as the player's {@link Message}; while there is none, nothing shows, and a new one hears the job again. */
-    private final class MessageToast implements VideoSession.Toast {
+    private final class MessageToast implements VideoSession.Toast, AccountState.Messages {
         @Override
         public void info(String words) {
             if (message != null) message.info(words);
+        }
+
+        @Override
+        public void hold(String words, VideoSession.Action action) {
+            hold(words, action, null);
         }
 
         @Override
@@ -316,6 +353,50 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
     public boolean dual() {
         Look settings = look();
         return settings != null && settings.dual();
+    }
+
+    @Override
+    public MenuInput.Account account() {
+        return account.account();
+    }
+
+    @Override
+    public boolean minutesKnown() {
+        return account.minutesKnown();
+    }
+
+    @Override
+    public Version mode() {
+        Look settings = look();
+        return settings != null ? settings.mode() : null;
+    }
+
+    @Override
+    public void setMode(Version mode) {
+        Look settings = look();
+        if (settings != null) settings.setMode(mode);
+    }
+
+    @Override
+    public void minutesChanged() {
+        account.readAgain();
+    }
+
+    /** Buy minutes, in a message: the menu opens on Account. */
+    @Override
+    public void openAccount() {
+        openMenu();
+        if (menu != null) menu.openAccount();
+    }
+
+    @Override
+    public AccountState accountState() {
+        return account;
+    }
+
+    @Override
+    public void flipMode(Version mode) {
+        session.setMode(mode);
     }
 
     @Override
@@ -470,8 +551,11 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
             @Override
             public void onActivityStarted(Activity shown) {
                 Guard.run("activity started", () -> {
+                    // Back from the browser, or anywhere else: the account is read, and a payment confirmed.
+                    boolean back = started.isEmpty();
                     started.add(shown);
                     session.setForeground(true);
+                    if (back) account.foreground();
                 });
             }
 
@@ -654,6 +738,7 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
             if (videoId != null && !isShort && Morphe.isWatchPlayer(type) && settings != null
                     && !videoId.equals(faultedVideo) && !videoId.equals(session.video())) {
                 session.open(videoId);
+                account.readOnce();
             }
 
             boolean original = originalCursor != null;
@@ -813,6 +898,7 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
         }
         menu.open(current, maxTop);
         session.menuOpened();
+        account.read();
     }
 
     private static Activity activityOf(Context context) {

@@ -9,10 +9,12 @@ import org.json.JSONException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import app.jimaku.extension.menu.Version;
+
 /**
  * What the viewer set, kept in the YouTube app's preferences in a file of Jimaku's own: whether
- * subtitles are on, Original caption, both sizes, the background, the position, and the timing of
- * the 200 videos set last. The ranges, steps and defaults are the extension's ({@code lib/store.ts}).
+ * subtitles are on, the Premium switch's mode, Original caption, both sizes, the background, the
+ * position, and the timing of the 200 videos set last. The ranges, steps and defaults are the extension's ({@code lib/store.ts}).
  */
 public final class Look {
     public static final int SIZE_MIN = 50, SIZE_MAX = 200, SIZE_STEP = 10, SIZE_DEFAULT = 100;
@@ -31,6 +33,8 @@ public final class Look {
     private OnChange onChange;
 
     private boolean on;
+    /** The mode the viewer flipped the Premium switch to, or null until they do. */
+    private Version mode;
     private boolean dual;
     private int translation;
     private int original;
@@ -46,6 +50,8 @@ public final class Look {
     Look(SharedPreferences prefs) {
         this.prefs = prefs;
         on = prefs.getBoolean("on", false);
+        String flipped = prefs.getString("mode", null);
+        mode = "premium".equals(flipped) ? Version.PREMIUM : "standard".equals(flipped) ? Version.STANDARD : null;
         dual = prefs.getBoolean("dual", false);
         translation = clamp(prefs.getInt("translation", SIZE_DEFAULT), SIZE_MIN, SIZE_MAX);
         original = clamp(prefs.getInt("original", SIZE_DEFAULT), SIZE_MIN, SIZE_MAX);
@@ -69,6 +75,10 @@ public final class Look {
 
     public boolean on() {
         return on;
+    }
+
+    public Version mode() {
+        return mode;
     }
 
     public boolean dual() {
@@ -109,6 +119,15 @@ public final class Look {
         if (on == value) return;
         on = value;
         prefs.edit().putBoolean("on", value).apply();
+        changed();
+    }
+
+    /** The Premium switch, flipped: Premium or Standard for every video from now on. */
+    public void setMode(Version value) {
+        if (value != Version.PREMIUM && value != Version.STANDARD) throw new IllegalArgumentException("Not a mode: " + value);
+        if (mode == value) return;
+        mode = value;
+        prefs.edit().putString("mode", value.id()).apply();
         changed();
     }
 

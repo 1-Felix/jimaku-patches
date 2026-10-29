@@ -155,6 +155,24 @@ public final class VideoSession {
 
         /** The video's length as the player has it, in seconds, or null. */
         Double mediaSeconds();
+
+        /** The account as last read, or null when it never was. */
+        MenuInput.Account account();
+
+        /** Whether its minutes can be counted on. */
+        boolean minutesKnown();
+
+        /** The mode the viewer flipped the Premium switch to, or null until they do. */
+        Version mode();
+
+        /** Keeps the switch's mode for every video. */
+        void setMode(Version mode);
+
+        /** A Premium job came to its end: what it spent or gave back is read. */
+        void minutesChanged();
+
+        /** Buy minutes: Account, with the amounts. */
+        void openAccount();
     }
 
     /** The clock, and a timer on the main thread. */
@@ -358,7 +376,8 @@ public final class VideoSession {
     /** What the menu model reads, for a signed-out viewer. */
     public MenuInput input() {
         MenuInput.Builder input = new MenuInput.Builder(host.preferred()).locale(Locale.getDefault()).lookup(lookup)
-                .kept(keptLanguages).standardOriginal(standardOriginal).showing(showing).duration(duration());
+                .kept(keptLanguages).standardOriginal(standardOriginal).showing(showing).duration(duration())
+                .me(host.account()).minutesKnown(host.minutesKnown()).mode(host.mode());
         if (trackKnown) input.track(track != null ? track.language : null);
         if (track != null) {
             List<String> uploaded = new ArrayList<>();
@@ -467,7 +486,8 @@ public final class VideoSession {
                     }
                     PendingJob pending = read != null ? read.pending : null;
                     boolean resumes = pending != null && pending.video.equals(videoId);
-                    if (intent == at && host.on() && keptLanguages.contains(preferred) && !resumes) {
+                    boolean standard = host.mode() == Version.STANDARD || !MenuModel.signedIn(input());
+                    if (intent == at && host.on() && keptLanguages.contains(preferred) && !resumes && standard) {
                         wanted = new Subtitle(preferred, Version.STANDARD);
                         show(wanted, intent, false, true, shown -> render());
                         return;
@@ -638,6 +658,34 @@ public final class VideoSession {
 
     /** Original caption was switched: the original is read, or leaves. */
     public void originalChanged() {
+        render();
+    }
+
+    /**
+     * The Premium switch, flipped: the mode for every video from now on. What shows follows it where
+     * the language has the other version too, and otherwise leaves the screen.
+     */
+    public void setMode(Version mode) {
+        host.setMode(mode);
+        Subtitle was = showing;
+        // Uploaded captions are in either mode.
+        if (was != null && was.version != Version.UPLOADED && was.version != mode) {
+            Subtitle same = new Subtitle(was.lang, mode);
+            if (MenuModel.has(input(), same)) {
+                choose(same);
+                return;
+            }
+            ++intent;
+            wanted = null;
+            unshow();
+        }
+        render();
+    }
+
+    /** The account was read again: what was picked follows what the menu would pick now. */
+    public void accountChanged() {
+        if (video == null) return;
+        followMode();
         render();
     }
 
@@ -1106,6 +1154,7 @@ public final class VideoSession {
             job = null;
             stream = null;
             error = false;
+            if (running.kind == JobKind.PREMIUM) host.minutesChanged();
             Subtitle made = running.subtitle();
             String name = Languages.englishName(running.lang);
             String ready = finished.saved ? Wording.t(Wording.TOAST_READY, name) : Wording.t(Wording.TOAST_READY_UNSAVED, name);
@@ -1156,8 +1205,8 @@ public final class VideoSession {
 
     /**
      * Says what went wrong in a few plain words, with the action that helps: Standard where a Premium
-     * request failed and the video allows it, and Try again where a start didn't reach the server.
-     * Buy minutes comes with the account, in step 4.
+     * request failed and the video allows it, Try again where a start didn't reach the server, and
+     * Buy minutes where Premium needs more of them.
      */
     private void fail(String reason, Map<String, Object> extra, Subtitle subtitle, boolean terminal, boolean retry) {
         if (video == null) return;
@@ -1176,8 +1225,10 @@ public final class VideoSession {
         PendingJob running = pendingJobs.load();
         Object busyVideo = extra.get("video");
         String runningTitle = running != null && running.video.equals(busyVideo) && !running.title.isEmpty() ? running.title : null;
+        MenuInput.Account account = host.account();
+        Double balance = host.minutesKnown() && account != null ? account.balance : null;
         Failures.Explained explained = Failures.explain(Locale.getDefault(), reason, extra, new Failures.Context(
-                subtitle.version == Version.PREMIUM && MenuModel.captionsAllowed(input()), runningTitle, null));
+                subtitle.version == Version.PREMIUM && MenuModel.captionsAllowed(input()), runningTitle, balance));
         boolean unreachable = reason.equals("unreachable") || reason.equals("offline");
         Action action = null;
         if (explained.standard) {
@@ -1186,7 +1237,9 @@ public final class VideoSession {
         } else if (retry && unreachable && subtitle.version != Version.UPLOADED) {
             action = new Action(Wording.t(Wording.ACTION_RETRY), () -> generate(subtitle));
         }
-        toast.hold(explained.text, action, null);
+        Action buy = explained.buy ? new Action(Wording.t(Wording.ACTION_BUY_MINUTES), host::openAccount) : null;
+        toast.hold(explained.text, action, buy);
+        if (was != null && was.kind == JobKind.PREMIUM) host.minutesChanged();
         render();
     }
 
@@ -1275,6 +1328,7 @@ public final class VideoSession {
             job = null;
             stream = null;
             error = false;
+            if (running.kind == JobKind.PREMIUM) host.minutesChanged();
             if (Subtitle.same(wanted, running.subtitle())) wanted = null;
             toast.info(stoppedText(running, stopped));
             render();

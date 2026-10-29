@@ -6,7 +6,7 @@
 
 Jimaku makes subtitles for YouTube videos and translates them into your language. This bundle shows them over the YouTube app's player, in the app's language, for videos Jimaku already has subtitles for.
 
-These are early pre-releases. They show subtitles that are already in Jimaku's cache, with Jimaku's menu and settings in the player. Making subtitles and signing in come in later releases.
+These are early pre-releases. They show subtitles from Jimaku's cache, with Jimaku's menu and settings in the player, and make Standard subtitles for free from the video's YouTube captions. Signed in, Premium subtitles are made from the video's speech with your Premium minutes, which you can buy in the menu's Account.
 
 ### How to use these patches
 
@@ -28,6 +28,8 @@ Every release is signed with this bundle's own key, whose public half is [morphe
 ### What the patch sends
 
 To find subtitles, the app asks `api.jimaku.app` for the video's ID and your language. Requests carry no YouTube account data, no cookies and no credentials. Their User-Agent names only Jimaku and the bundle's version.
+
+To make subtitles and keep your minutes, the app registers an anonymous install with `api.jimaku.app` and sends its secret with those requests only. Signing in happens on www.jimaku.app in your browser, with Google: the app opens the page with a one-time code for its install, and no Google token passes through the app. Buying minutes happens on Stripe's page in your browser.
 
 ## 🩹 Patches list
 

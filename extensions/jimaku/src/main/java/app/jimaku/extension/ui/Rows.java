@@ -249,6 +249,124 @@ public final class Rows {
     }
 
     /**
+     * The menu's top row signed in, as the extension's: the sparkle, Premium, the minutes left or
+     * "Standard, free" beside YouTube's switch, which the whole row flips.
+     */
+    public static View premium(Context context, Theme theme, String label, String value, boolean on, Runnable press) {
+        LinearLayout row = row(context, theme, press);
+        row.addView(new IconView(context, theme, Icons.SPARKLE, theme.text, 20), iconParams(theme));
+        row.addView(label(context, theme, label), labelParams());
+        if (!value.isEmpty()) row.addView(value(context, theme, value), valueParams(theme));
+        row.addView(new SwitchView(context, theme, on), switchParams(theme));
+        row.setContentDescription(value.isEmpty() ? label : label + ", " + value);
+        row.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName("android.widget.Switch");
+                info.setCheckable(true);
+                info.setChecked(on);
+            }
+        });
+        return row;
+    }
+
+    /**
+     * The top row signed out, as the extension's: Premium, a Sign in pill and the switch greyed out,
+     * which TalkBack names {@code switchName} and reads as off and unavailable.
+     */
+    public static View signedOut(Context context, Theme theme, String label, String pill, String switchName, Runnable signIn) {
+        LinearLayout row = row(context, theme, null);
+        row.addView(new IconView(context, theme, Icons.SPARKLE, theme.text, 20), iconParams(theme));
+        TextView name = label(context, theme, label);
+        name.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        row.addView(name, labelParams());
+        TextView button = new TextView(context);
+        button.setText(pill);
+        button.setTextColor(theme.text);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        button.setTypeface(MEDIUM);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(theme.dp(14), 0, theme.dp(14), 0);
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(theme.roundButton);
+        shape.setCornerRadius(theme.dp(16));
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(theme.pressed), shape, null));
+        button.setOnClickListener(v -> Guard.run("menu press", signIn));
+        readAsButton(button);
+        LinearLayout.LayoutParams pillParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, theme.dp(32));
+        pillParams.setMarginStart(theme.dp(16));
+        row.addView(button, pillParams);
+        SwitchView off = new SwitchView(context, theme, false);
+        off.setAlpha(theme.disabledAlpha / 255f);
+        off.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        off.setFocusable(true);
+        off.setContentDescription(switchName);
+        off.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName("android.widget.Switch");
+                info.setCheckable(true);
+                info.setChecked(false);
+                info.setEnabled(false);
+            }
+        });
+        row.addView(off, switchParams(theme));
+        return row;
+    }
+
+    /** A row that reads a label and a value, as Account's minutes. */
+    public static View labelled(Context context, Theme theme, String label, String value) {
+        LinearLayout row = row(context, theme, null);
+        row.addView(label(context, theme, label), labelParams());
+        row.addView(value(context, theme, value), valueParams(theme));
+        row.setFocusable(true);
+        row.setContentDescription(label + ", " + value);
+        return row;
+    }
+
+    /** A row that does one thing when pressed, as Account's amounts and Sign out; greyed out while it can't. */
+    public static View action(Context context, Theme theme, String label, boolean enabled, Runnable press) {
+        LinearLayout row = row(context, theme, enabled ? press : null);
+        row.addView(label(context, theme, label), labelParams());
+        if (!enabled) row.setAlpha(theme.disabledAlpha / 255f);
+        row.setContentDescription(label);
+        row.setEnabled(enabled);
+        readAsButton(row);
+        return row;
+    }
+
+    /** Words under a group of rows in the secondary colour, wrapping, as Account's rate. */
+    public static View footnote(Context context, Theme theme, String text) {
+        TextView note = secondary(context, theme, text);
+        note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        note.setSingleLine(false);
+        note.setPaddingRelative(theme.dp(16), theme.dp(4), theme.dp(16), theme.dp(12));
+        note.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return note;
+    }
+
+    private static TextView value(Context context, Theme theme, String text) {
+        TextView shown = secondary(context, theme, text);
+        shown.setFontFeatureSettings("tnum");
+        shown.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return shown;
+    }
+
+    private static LinearLayout.LayoutParams valueParams(Theme theme) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMarginStart(theme.dp(16));
+        return params;
+    }
+
+    private static LinearLayout.LayoutParams switchParams(Theme theme) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(theme.dp(40), theme.dp(24));
+        params.setMarginStart(theme.dp(16));
+        return params;
+    }
+
+    /**
      * A row that opens a second sheet: an icon, a label and YouTube's chevron, 24 dp as on its More
      * row, which has no value before it.
      */

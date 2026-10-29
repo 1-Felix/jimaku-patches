@@ -28,6 +28,7 @@ import app.jimaku.extension.gateway.Writes;
 import app.jimaku.extension.jobs.Glide;
 import app.jimaku.extension.jobs.JobKind;
 import app.jimaku.extension.jobs.JobState;
+import app.jimaku.extension.menu.MenuInput;
 import app.jimaku.extension.menu.Subtitle;
 import app.jimaku.extension.menu.Version;
 import app.jimaku.extension.shared.Wording;
@@ -216,6 +217,11 @@ public class VideoSessionTest {
     private static final class FakeHost implements VideoSession.Host {
         boolean on;
         boolean dual;
+        MenuInput.Account account;
+        boolean minutesKnown;
+        Version mode;
+        int minutesChanged;
+        int accountOpened;
 
         @Override
         public String preferred() {
@@ -241,6 +247,41 @@ public class VideoSessionTest {
         public Double mediaSeconds() {
             return null;
         }
+
+        @Override
+        public MenuInput.Account account() {
+            return account;
+        }
+
+        @Override
+        public boolean minutesKnown() {
+            return minutesKnown;
+        }
+
+        @Override
+        public Version mode() {
+            return mode;
+        }
+
+        @Override
+        public void setMode(Version mode) {
+            this.mode = mode;
+        }
+
+        @Override
+        public void minutesChanged() {
+            minutesChanged++;
+        }
+
+        @Override
+        public void openAccount() {
+            accountOpened++;
+        }
+
+        void signIn(double seconds) {
+            account = new MenuInput.Account(seconds, true);
+            minutesKnown = true;
+        }
     }
 
     /** The message as the player's: progress behind a question waits, and the question stays. */
@@ -248,6 +289,7 @@ public class VideoSessionTest {
         final List<String> said = new ArrayList<>();
         String kind;
         VideoSession.Action forward;
+        VideoSession.Action second;
         VideoSession.Action stop;
         Runnable yes;
 
@@ -261,7 +303,8 @@ public class VideoSessionTest {
         public void hold(String words, VideoSession.Action forward, VideoSession.Action second) {
             kind = "hold";
             this.forward = forward;
-            said.add("hold " + words + (forward != null ? " [" + forward.label + "]" : ""));
+            this.second = second;
+            said.add("hold " + words + (forward != null ? " [" + forward.label + "]" : "") + (second != null ? " [" + second.label + "]" : ""));
         }
 
         @Override
@@ -430,6 +473,64 @@ public class VideoSessionTest {
         background.drain();
         assertEquals("lines de aaaaaaaaaaa de", display.last());
         assertEquals(List.of("lookup " + FIRST, "document " + FIRST + " de"), gateway.requests);
+    }
+
+    @Test
+    public void turningPremiumOffShowsStandardWhereItIsMadeAndOtherwiseNothing() {
+        host.on = true;
+        host.signIn(18000);
+        cache(FIRST, "ja", "de");
+        kept.keep(FIRST, "de", line("kept"), false);
+        session.open(FIRST);
+        background.drain();
+        assertEquals(PREMIUM_DE, session.showing());
+        session.setMode(Version.STANDARD);
+        background.drain();
+        assertEquals(Version.STANDARD, host.mode);
+        assertEquals(STANDARD_DE, session.showing());
+        assertEquals("lines de kept", display.last());
+
+        session.setMode(Version.PREMIUM);
+        background.drain();
+        assertEquals(PREMIUM_DE, session.showing());
+    }
+
+    @Test
+    public void turningPremiumOffWithoutStandardLeavesTheScreen() {
+        host.on = true;
+        host.signIn(18000);
+        cache(FIRST, "ja", "de");
+        session.open(FIRST);
+        background.drain();
+        assertEquals(PREMIUM_DE, session.showing());
+        session.setMode(Version.STANDARD);
+        assertNull(session.showing());
+        assertEquals("no lines", display.last());
+    }
+
+    @Test
+    public void inPremiumModeKeptStandardWaitsForTheGateway() {
+        host.on = true;
+        host.signIn(18000);
+        host.mode = Version.PREMIUM;
+        cache(FIRST, "ja", "de");
+        kept.keep(FIRST, "de", line("kept"), false);
+        session.open(FIRST);
+        background.drain();
+        assertEquals(PREMIUM_DE, session.showing());
+        assertTrue(gateway.requests.contains("lookup " + FIRST));
+    }
+
+    @Test
+    public void premiumWithoutMinutesOffersStandardAndBuyMinutes() {
+        host.signIn(0);
+        openUncached();
+        session.generate(PREMIUM_DE);
+        background.drain();
+        assertEquals("hold No Premium minutes left [Use Standard] [Buy minutes]", toast.last());
+        toast.second.run.run();
+        assertEquals(1, host.accountOpened);
+        assertEquals(0, gateway.count("start"));
     }
 
     @Test
