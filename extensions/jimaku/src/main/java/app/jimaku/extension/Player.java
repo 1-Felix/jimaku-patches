@@ -375,18 +375,24 @@ final class Player implements VideoSession.Display, Menu.Host {
         String textLang = lang;
 
         if (editing) {
-            if (text == null && originalText == null) {
+            // Through a gap the last lines stay. With no translation on, or nothing on screen yet, the
+            // sample stands in, with the original's above it where Original caption shows one, as in
+            // the extension; a sample is never held.
+            boolean untranslated = cursor == null;
+            if (!untranslated && text == null && originalText == null) {
                 text = heldText;
                 originalText = heldOriginal;
             }
-            heldText = text;
-            heldOriginal = originalText;
-            if (cursor == null && !showOriginal) {
-                // Nothing on screen: the sample stands in, with the original's above it where Original caption shows one.
+            if (untranslated || (text == null && originalText == null)) {
+                heldText = null;
+                heldOriginal = null;
                 textLang = preferred();
                 text = Samples.line(textLang);
-                originalText = originalLang != null && !originalLang.equals(textLang) && settings.dual()
-                        && MenuModel.originalAvailable(lookup, textLang, null) ? Samples.line(originalLang) : null;
+                originalText = originalLang != null && !originalLang.equals(textLang) && originalShown()
+                        ? Samples.line(originalLang) : null;
+            } else {
+                heldText = text;
+                heldOriginal = originalText;
             }
         }
 
