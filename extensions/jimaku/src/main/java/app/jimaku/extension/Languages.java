@@ -129,6 +129,17 @@ public final class Languages {
     }
 
     /**
+     * The language's name in English, as the extension's {@code englishName} reads it from
+     * {@code Intl.DisplayNames}: Japanese for ja, Simplified Chinese for zh-Hans.
+     */
+    public static String englishName(String code) {
+        if (code.equals("zh-Hans")) return "Simplified Chinese";
+        if (code.equals("zh-Hant")) return "Traditional Chinese";
+        String name = Locale.forLanguageTag(code).getDisplayName(Locale.ENGLISH);
+        return name.isEmpty() || name.equals(code) ? name(code) : name;
+    }
+
+    /**
      * The subtitle language for a language tag such as de-AT or zh-TW: its base language when
      * subtitles can be made in it, Chinese by its script or else its region, and English for
      * anything else.

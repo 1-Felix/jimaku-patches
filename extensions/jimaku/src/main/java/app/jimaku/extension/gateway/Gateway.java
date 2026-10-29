@@ -77,7 +77,18 @@ public final class Gateway implements Reads {
     public List<Line> document(String video, String lang, Cancellation cancellation) throws GatewayException {
         if (!isVideoId(video)) throw new GatewayException("bad_video");
         if (!Languages.isLanguageCode(lang)) throw new GatewayException("bad_language");
-        HttpGet.Response response = send("/videos/" + video + "/" + lang, cancellation);
+        return lines(send("/videos/" + video + "/" + lang, cancellation));
+    }
+
+    /** The transcript as said, the video's original caption, also where it is in two languages. */
+    @Override
+    public List<Line> original(String video, Cancellation cancellation) throws GatewayException {
+        if (!isVideoId(video)) throw new GatewayException("bad_video");
+        return lines(send("/videos/" + video + "/original", cancellation));
+    }
+
+    /** The lines of a subtitle document; the document carries more, which Jimaku doesn't need. */
+    private static List<Line> lines(HttpGet.Response response) throws GatewayException {
         if (!isOk(response)) throw refusal(response);
         Object lines = object(response).opt("lines");
         if (!(lines instanceof JSONArray)) throw new GatewayException("bad_answer");

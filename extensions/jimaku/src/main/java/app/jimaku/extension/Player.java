@@ -24,9 +24,19 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import android.content.ContextWrapper;
+import android.widget.LinearLayout;
+
 import app.jimaku.extension.gateway.Gateway;
+import app.jimaku.extension.gateway.Lookup;
+import app.jimaku.extension.menu.Menu;
+import app.jimaku.extension.menu.MenuModel;
+import app.jimaku.extension.overlay.PlayerButton;
 import app.jimaku.extension.overlay.SubtitleView;
 import app.jimaku.extension.session.VideoSession;
+import app.jimaku.extension.settings.Look;
+import app.jimaku.extension.shared.Samples;
+import app.jimaku.extension.shared.Wording;
 import app.jimaku.extension.subtitles.Line;
 import app.jimaku.extension.subtitles.LineCursor;
 
@@ -38,12 +48,15 @@ import app.jimaku.extension.subtitles.LineCursor;
  * the video is paused, a check a few times a second catches seeks and the controls. While they
  * can't show, nothing runs until one of Morphe's events or a layout change says otherwise.
  */
-final class Player implements VideoSession.Display {
+final class Player implements VideoSession.Display, Menu.Host {
     private static final String OVERLAYS_LAYOUT =
             "com.google.android.apps.youtube.app.common.player.overlay.YouTubePlayerOverlaysLayout";
     private static final long PAUSED_CHECK_MILLIS = 250;
     /** YouTube's views in the row of controls at the bottom of the player, by resource name. */
     private static final String[] CONTROLS_ROW = {"timestamps_container", "fullscreen_button"};
+    /** YouTube's top bar in the player, and its CC button, beside which Jimaku's button sits. */
+    private static final String TOP_BAR = "player_additional_view_container";
+    private static final String CC_BUTTON = "player_subtitle_button";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final VideoSession session;
@@ -85,6 +98,17 @@ final class Player implements VideoSession.Display {
     private long lastTimeMillis = -1;
     private LineCursor cursor;
     private String lang;
+    private LineCursor originalCursor;
+    /** While Settings is open, the captions last drawn stay through the gap before the next. */
+    private String heldText;
+    private String heldOriginal;
+    private boolean editing;
+
+    private Look look;
+    private Menu menu;
+    private PlayerButton button;
+    private WeakReference<ViewGroup> topBar = new WeakReference<>(null);
+    private boolean topBarMissingLogged;
 
     private boolean framePosted;
     private boolean pausedCheckPosted;
@@ -98,6 +122,61 @@ final class Player implements VideoSession.Display {
             return thread;
         });
         session = new VideoSession(new Gateway(), reads, main::post, this);
+    }
+
+    /** The settings, read once there is a context to read them from. */
+    private Look look() {
+        if (look == null) {
+            Context context = Morphe.context();
+            if (context == null) context = activity.get();
+            if (context == null) return null;
+            Context app = context.getApplicationContext();
+            look = new Look(app != null ? app : context);
+            look.setOnChange(() -> Guard.run("settings change", this::onLookChange));
+            menu = new Menu(session, look, this);
+        }
+        return look;
+    }
+
+    private void onLookChange() {
+        if (menu != null) menu.refresh();
+        update();
+    }
+
+    @Override
+    public String preferred() {
+        return Languages.languageFor(Locale.getDefault());
+    }
+
+    @Override
+    public void settingsShown(boolean shown) {
+        editing = shown;
+        heldText = null;
+        heldOriginal = null;
+        if (view != null) view.setEditing(shown);
+        update();
+    }
+
+    @Override
+    public Boolean darkTheme() {
+        try {
+            return Morphe.darkTheme();
+        } catch (RuntimeException | LinkageError e) {
+            JimakuLog.warn("No theme from Morphe: " + e);
+            return null;
+        }
+    }
+
+    @Override
+    public void originalWanted() {
+        session.askOriginal();
+    }
+
+    /** Whether Original caption shows an original on this video, by the viewer's switch and the menu's rules. */
+    private boolean originalShown() {
+        Look settings = look();
+        return settings != null && settings.dual()
+                && MenuModel.originalAvailable(session.lookup(), preferred(), session.wanted());
     }
 
     /** Keeps the resumed activity, to find the player in its views before the controls first show. */
@@ -154,6 +233,7 @@ final class Player implements VideoSession.Display {
             return;
         }
         attach(found);
+        placeButton();
         update();
     }
 
@@ -196,13 +276,28 @@ final class Player implements VideoSession.Display {
     /** After a fault: this video's subtitles go, and it plays on without them. */
     void onFault() {
         faultedVideo = videoId;
+        if (menu != null) menu.close();
         session.reset();
     }
 
     @Override
+    public void lookedUp(String video, Lookup lookup) {
+        if (originalShown()) session.askOriginal();
+        if (menu != null) menu.refresh();
+        update();
+    }
+
+    @Override
     public void show(String video, String lang, List<Line> lines) {
-        cursor = new LineCursor(lines);
+        cursor = lines == null ? null : new LineCursor(lines);
         this.lang = lang;
+        if (menu != null) menu.refresh();
+        update();
+    }
+
+    @Override
+    public void original(String video, List<Line> lines) {
+        originalCursor = new LineCursor(lines);
         update();
     }
 
@@ -210,13 +305,23 @@ final class Player implements VideoSession.Display {
     @Override
     public void clear() {
         cursor = null;
-        if (view != null) view.setText(null);
+        lang = null;
+        originalCursor = null;
+        heldText = null;
+        heldOriginal = null;
+        if (view != null) {
+            view.setText(null, null);
+            view.setOriginal(null, null);
+        }
+        if (menu != null) menu.refresh();
+        updateButton();
         schedule(false, false);
     }
 
     private void onLayoutChange() {
         surfaceSearched = false;
         controlsRowSearched = false;
+        placeButton();
         update();
     }
 
@@ -225,16 +330,25 @@ final class Player implements VideoSession.Display {
         String type = Morphe.playerType();
         boolean isShort = Morphe.lastVideoIsShort();
 
-        if (videoId != null && !isShort && Morphe.isWatchPlayer(type)
+        Look settings = look();
+        if (videoId != null && !isShort && Morphe.isWatchPlayer(type) && settings != null
                 && !videoId.equals(faultedVideo) && !videoId.equals(session.video())) {
-            session.open(videoId, Languages.languageFor(Locale.getDefault()));
+            session.open(videoId, preferred(), settings.on());
         }
 
-        boolean mayShow = cursor != null && !isShort && Morphe.showsSubtitles(type);
-        if (mayShow && (view == null || !view.isAttachedToWindow())) findOverlayInActivity();
+        boolean original = originalCursor != null && originalShown();
+        boolean fullSize = settings != null && !isShort && Morphe.showsSubtitles(type);
+        boolean mayShow = fullSize && (cursor != null || original || editing);
+        // The button is wanted whether or not subtitles show: after YouTube made its activity anew,
+        // the overlay is found again here, as Morphe doesn't report the new controls.
+        if (fullSize && (view == null || !view.isAttachedToWindow())) findOverlayInActivity();
         boolean canShow = mayShow && isOnScreen();
-        if (canShow) draw();
-        else if (view != null) view.setText(null);
+        if (canShow) draw(original);
+        else if (view != null) {
+            view.setText(null, null);
+            view.setOriginal(null, null);
+        }
+        updateButton();
 
         boolean playing = isPlaying();
         schedule(canShow && playing, canShow && !playing);
@@ -246,12 +360,142 @@ final class Player implements VideoSession.Display {
                 && view.getWidth() > 0 && view.getHeight() > 0;
     }
 
-    private void draw() {
-        Line line = cursor.at(Morphe.videoTimeMillis() / 1000.0);
-        view.setLanguage(lang);
-        view.setText(line == null ? null : line.text);
+    private void draw(boolean showOriginal) {
+        Look settings = look();
+        // A later timing shows each caption that much later: on screen is the caption of that much earlier.
+        double t = Morphe.videoTimeMillis() / 1000.0 - settings.timing(session.video()) / 10.0;
+        Line line = cursor != null ? cursor.at(t) : null;
+        Line originalLine = showOriginal ? originalCursor.at(t) : null;
+        String text = line == null ? null : line.text;
+        String originalText = originalLine == null ? null : originalLine.text;
+        // A line of the original that reads as the one below it would only repeat it.
+        if (originalText != null && originalText.equals(text)) originalText = null;
+        Lookup lookup = session.lookup();
+        String originalLang = lookup != null ? lookup.original : null;
+        String textLang = lang;
+
+        if (editing) {
+            if (text == null && originalText == null) {
+                text = heldText;
+                originalText = heldOriginal;
+            }
+            heldText = text;
+            heldOriginal = originalText;
+            if (cursor == null && !showOriginal) {
+                // Nothing on screen: the sample stands in, with the original's above it where Original caption shows one.
+                textLang = preferred();
+                text = Samples.line(textLang);
+                originalText = originalLang != null && !originalLang.equals(textLang) && settings.dual()
+                        && MenuModel.originalAvailable(lookup, textLang, null) ? Samples.line(originalLang) : null;
+            }
+        }
+
+        view.setLook(settings.translation(), settings.original(), settings.background());
+        view.setPosition(settings.positionX(), settings.positionY());
+        view.setEditing(editing);
+        view.setText(text, textLang);
+        view.setOriginal(originalText, originalLang);
         view.setVideoArea(videoArea());
         view.setControlsTop(Morphe.controlsShown() ? controlsTop() : -1);
+    }
+
+    /**
+     * Jimaku's button as first child of YouTube's top bar, left of CC, sized as CC. Put back where
+     * YouTube rebuilt the bar; without the bar, subtitles show as before, without the button.
+     */
+    private void placeButton() {
+        if (overlay == null) return;
+        ViewGroup bar = topBar.get();
+        if (bar == null || !bar.isAttachedToWindow()) {
+            bar = null;
+            int id = resourceId(TOP_BAR);
+            View found = id != 0 ? overlay.findViewById(id) : null;
+            Activity current = activity.get();
+            if (found == null && id != 0 && current != null && current.getWindow() != null) {
+                View decor = current.getWindow().peekDecorView();
+                if (decor != null) found = decor.findViewById(id);
+            }
+            if (found instanceof ViewGroup group) bar = group;
+            topBar = new WeakReference<>(bar);
+        }
+        if (bar == null) {
+            if (!topBarMissingLogged) JimakuLog.warn("No top bar to place the button in");
+            topBarMissingLogged = true;
+            return;
+        }
+        if (button != null && button.getParent() == bar && bar.getChildAt(0) == button) return;
+        // A bar of a new activity gets a button of its own, so none keeps a finished activity.
+        if (button != null && button.getContext() != bar.getContext()) {
+            if (button.getParent() instanceof ViewGroup oldParent) oldParent.removeView(button);
+            button = null;
+        }
+        if (button == null) {
+            button = new PlayerButton(bar.getContext());
+            button.setOnClickListener(v -> Guard.run("button", this::openMenu));
+        }
+        if (button.getParent() instanceof ViewGroup oldParent) oldParent.removeView(button);
+        int ccId = resourceId(CC_BUTTON);
+        View cc = ccId != 0 ? bar.findViewById(ccId) : null;
+        ViewGroup.LayoutParams params;
+        if (cc != null && cc.getLayoutParams() instanceof LinearLayout.LayoutParams ccParams && bar instanceof LinearLayout) {
+            params = new LinearLayout.LayoutParams(ccParams);
+        } else {
+            int size = Math.round(48 * bar.getResources().getDisplayMetrics().density);
+            params = new ViewGroup.LayoutParams(size, size);
+        }
+        bar.addView(button, 0, params);
+        updateButton();
+        JimakuLog.info("Button placed in the top bar" + (cc != null ? ", beside CC" : ""));
+    }
+
+    /** The button's fill and name, from what shows, as the extension's describeState() has them. */
+    private void updateButton() {
+        if (button == null) return;
+        boolean alone = cursor == null && originalCursor != null && originalShown();
+        Lookup lookup = session.lookup();
+        String wanted = session.wanted();
+        String language = lang != null ? lang : wanted != null ? wanted
+                : alone && lookup != null ? lookup.original : preferred();
+        boolean on = cursor != null || alone;
+        String english = Languages.englishName(language);
+        String name;
+        if (on) name = Wording.t(Wording.PLAYER_ON, english);
+        else if (lookup != null && lookup.cachedLanguages().contains(language)) name = Wording.t(Wording.PLAYER_AVAILABLE, english);
+        else if (session.lookedUp()) name = Wording.t(Wording.PLAYER_MISSING, english);
+        else name = Wording.t(Wording.PLAYER_NAME);
+        button.setOn(on);
+        button.setName(name);
+    }
+
+    private void openMenu() {
+        Activity current = activityOf(button != null ? button.getContext() : null);
+        if (current == null || current.isFinishing() || current.isDestroyed()) current = activity.get();
+        if (current == null || current.isFinishing() || current.isDestroyed() || look() == null) return;
+        int maxTop = 0;
+        if (overlay != null && overlay.isShown()) {
+            overlay.getLocationOnScreen(otherLocation);
+            maxTop = otherLocation[1] + overlay.getHeight();
+        }
+        menu.open(current, maxTop);
+    }
+
+    private static Activity activityOf(Context context) {
+        while (context instanceof ContextWrapper wrapper) {
+            if (context instanceof Activity found) return found;
+            context = wrapper.getBaseContext();
+        }
+        return null;
+    }
+
+    /** A view ID of YouTube's by its resource name, or 0. */
+    private int resourceId(String name) {
+        if (overlay == null || overlay.getId() == View.NO_ID) return 0;
+        Resources resources = overlay.getResources();
+        try {
+            return resources.getIdentifier(name, "id", resources.getResourcePackageName(overlay.getId()));
+        } catch (Resources.NotFoundException e) {
+            return 0;
+        }
     }
 
     private void schedule(boolean frames, boolean check) {
@@ -281,6 +525,11 @@ final class Player implements VideoSession.Display {
     private void attach(ViewGroup found) {
         if (overlay == found && view != null && view.getParent() == found) return;
         if (overlay != null) overlay.removeOnLayoutChangeListener(layoutChange);
+        // An overlay of a new activity gets a view of its own, so none keeps a finished activity.
+        if (view != null && view.getContext() != found.getContext()) {
+            if (view.getParent() instanceof ViewGroup oldParent) oldParent.removeView(view);
+            view = null;
+        }
         if (view == null) {
             view = new SubtitleView(found.getContext());
             view.setOnScreenChange(() -> Guard.run("screen change", this::update));
@@ -293,6 +542,7 @@ final class Player implements VideoSession.Display {
         surfaceSearched = false;
         controlsRowSearched = false;
         JimakuLog.info("Attached to the player overlay");
+        placeButton();
     }
 
     /** The part of the view the video covers: the video surface cut to the view, or the whole view. */

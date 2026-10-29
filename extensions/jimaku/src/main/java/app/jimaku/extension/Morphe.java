@@ -20,6 +20,11 @@ final class Morphe {
         return Utils.getContext();
     }
 
+    /** Whether YouTube shows its dark theme: its own setting, which the activity's night mode doesn't always carry. */
+    static boolean darkTheme() {
+        return Utils.isDarkModeEnabled();
+    }
+
     /** The playback time in milliseconds, asked from the player on each call. */
     static long videoTimeMillis() {
         return VideoInformation.getVideoTime();

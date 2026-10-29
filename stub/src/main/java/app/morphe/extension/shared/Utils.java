@@ -11,4 +11,9 @@ public final class Utils {
     public static Context getContext() {
         throw new UnsupportedOperationException();
     }
+
+    /** Whether YouTube shows its dark theme, as Morphe's theme hook last saw it. */
+    public static boolean isDarkModeEnabled() {
+        throw new UnsupportedOperationException();
+    }
 }

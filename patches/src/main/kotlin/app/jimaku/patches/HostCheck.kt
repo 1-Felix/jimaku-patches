@@ -18,6 +18,7 @@ internal val REQUIRED_HOST_METHODS: Map<String, Set<String>> = mapOf(
     ),
     "Lapp/morphe/extension/shared/Utils;" to setOf(
         "getContext()Landroid/content/Context;",
+        "isDarkModeEnabled()Z",
     ),
     "Lapp/morphe/extension/youtube/patches/VideoInformation;" to setOf(
         "getVideoTime()J",
