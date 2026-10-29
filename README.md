@@ -21,6 +21,10 @@ The Jimaku patch adds only Jimaku. Apply it together with Morphe's YouTube patch
   <img src=".github/assets/add-to-morphe.svg" alt="Add to Morphe" height="48">
 </a>
 
+### Signed releases
+
+Every release is signed with this bundle's own key, whose public half is [morphe-signing.pub](morphe-signing.pub). Once you have added the source, Morphe Manager refuses a release that wasn't signed with it. If the key ever has to change, the release notes say so, and Manager asks you to confirm the new key.
+
 ### What the patch sends
 
 To find subtitles, the app asks `api.jimaku.app` for the video's ID and your language. Requests carry no YouTube account data, no cookies and no credentials. Their User-Agent names only Jimaku and the bundle's version.
