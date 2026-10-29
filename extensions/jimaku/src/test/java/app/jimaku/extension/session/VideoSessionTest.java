@@ -626,6 +626,34 @@ public class VideoSessionTest {
     }
 
     @Test
+    public void aChoiceMadeWhileTheVideoIsLookedUpStaysTheViewers() {
+        host.on = true;
+        cache(FIRST, "ja", "de", "en");
+        session.open(FIRST);
+        // YouTube's tracks and what the phone keeps are read; the lookup is still on its way.
+        background.runNext();
+        background.runNext();
+        Subtitle english = new Subtitle("en", Version.PREMIUM);
+        session.choose(english);
+        background.drain();
+        assertEquals(english, session.showing());
+        assertEquals(0, gateway.count("document " + FIRST + " de"));
+    }
+
+    @Test
+    public void readingCaptionsForAStartTheViewerTurnedFromLeavesNoMessage() {
+        openUncached();
+        gateway.documents.put(FIRST + "/en", line("English"));
+        session.generate(STANDARD_DE);
+        assertTrue("reading YouTube's captions shows", toast.showingProgress());
+        session.choose(new Subtitle("en", Version.PREMIUM));
+        background.drain();
+        assertFalse("the reading message left", toast.showingProgress());
+        assertEquals(0, gateway.count("start"));
+        assertFalse(session.control().working);
+    }
+
+    @Test
     public void tenFailedChecksSayTheServerCantBeReachedAndCheckLessOften() {
         startStandard();
         for (int i = 0; i < VideoSession.CHECK_FAILURES; i++) check(() -> {

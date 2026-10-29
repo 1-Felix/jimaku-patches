@@ -456,6 +456,8 @@ public final class VideoSession {
         video = videoId;
         String preferred = host.preferred();
         JimakuLog.info("Opened " + videoId + (host.on() ? ", showing " + preferred : ""));
+        // A press while the phone or the gateway is read is the viewer's: nothing is picked over it.
+        int at = intent;
         loadTrack();
         io("kept results", false, cancellation -> new KeptRead(kept.languages(videoId), kept.originalLanguage(videoId), pendingJobs.load()),
                 (read, failed) -> {
@@ -465,13 +467,13 @@ public final class VideoSession {
                     }
                     PendingJob pending = read != null ? read.pending : null;
                     boolean resumes = pending != null && pending.video.equals(videoId);
-                    if (host.on() && keptLanguages.contains(preferred) && !resumes) {
+                    if (intent == at && host.on() && keptLanguages.contains(preferred) && !resumes) {
                         wanted = new Subtitle(preferred, Version.STANDARD);
                         show(wanted, intent, false, true, shown -> render());
                         return;
                     }
                     ensureLookup(() -> {
-                        Subtitle best = host.on() ? MenuModel.pick(input(), preferred) : null;
+                        Subtitle best = intent == at && host.on() ? MenuModel.pick(input(), preferred) : null;
                         if (best == null) {
                             opened(pending);
                             return;
@@ -869,6 +871,7 @@ public final class VideoSession {
                     true, null, null, null);
             io("read of YouTube's captions", true, cancellation -> tracks.captions(said, said.source, cancellation), (body, failed) -> {
                 if (!current(subtitle, at)) {
+                    dropReading();
                     done();
                     return;
                 }
@@ -896,6 +899,11 @@ public final class VideoSession {
         render();
     }
 
+    /** The reading message of a start the viewer turned away from leaves; a job's own progress stays. */
+    private void dropReading() {
+        if (job == null && toast.showingProgress()) toast.hide();
+    }
+
     /**
      * Asks the gateway to start. The request goes on when the viewer leaves the video, and the job it
      * started is kept as the pending record before anything else, so it is picked up again.
@@ -909,7 +917,10 @@ public final class VideoSession {
             submitting = false;
             if (started == null) {
                 render();
-                if (!current(subtitle, at)) return;
+                if (!current(subtitle, at)) {
+                    dropReading();
+                    return;
+                }
                 String code = failed != null ? failed.code : "internal";
                 if (code.equals("exists")) {
                     refreshAndShow(subtitle);
@@ -1335,6 +1346,7 @@ public final class VideoSession {
      */
     private <T> void io(String what, boolean cancellable, Io<T> work, Answer<T> answer) {
         long readFor = generation;
+        String videoId = video;
         Cancellation cancellation = new Cancellation();
         if (cancellable) open.add(cancellation);
         background.execute(() -> {
@@ -1345,7 +1357,7 @@ public final class VideoSession {
             } catch (GatewayException e) {
                 error = e;
                 if (!"cancelled".equals(e.code)) {
-                    JimakuLog.warn(what + " for " + video + " failed: " + e.code + (e.getCause() != null ? " (" + e.getCause() + ")" : ""));
+                    JimakuLog.warn(what + " for " + videoId + " failed: " + e.code + (e.getCause() != null ? " (" + e.getCause() + ")" : ""));
                 }
             } catch (RuntimeException e) {
                 JimakuLog.fault(what, e);

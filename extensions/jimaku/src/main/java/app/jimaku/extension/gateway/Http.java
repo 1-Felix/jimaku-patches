@@ -171,7 +171,8 @@ public final class Http {
     /** No request asks for compression; a body sent compressed anyway is unpacked. */
     private static byte[] decoded(byte[] body, Map<String, String> headers) throws IOException {
         String encoding = headers.get("content-encoding");
-        if (encoding == null || !encoding.toLowerCase(Locale.ROOT).contains("gzip")) return body;
+        // An empty answer has nothing to unpack, whatever its encoding says.
+        if (body.length == 0 || encoding == null || !encoding.toLowerCase(Locale.ROOT).contains("gzip")) return body;
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         copy(new GZIPInputStream(new ByteArrayInputStream(body)), out, -1);
         return out.toByteArray();

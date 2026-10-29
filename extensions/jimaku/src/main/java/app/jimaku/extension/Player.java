@@ -440,11 +440,6 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
         }
     }
 
-    @Override
-    public void originalWanted() {
-        session.originalChanged();
-    }
-
     /**
      * Keeps the resumed activity, to find the player in its views before the controls first show, and
      * whether the app is in the foreground, where alone a job is checked.

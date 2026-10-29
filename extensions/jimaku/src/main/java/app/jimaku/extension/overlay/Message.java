@@ -358,8 +358,10 @@ public final class Message extends ViewGroup {
             bold.setSpan(new StyleSpan(Typeface.BOLD), at, at + strong.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             shown = bold;
         }
-        if (TextUtils.equals(shown.toString(), text.getText().toString()) && sameBold(shown, text.getText())) return;
+        boolean same = TextUtils.equals(shown.toString(), text.getText().toString()) && sameBold(shown, text.getText());
+        // A message that appears again with the words it had when it was hidden is still read out.
         if (appearing && announce) announceSettled = true;
+        if (same) return;
         text.setAccessibilityLiveRegion(announce && !appearing ? ACCESSIBILITY_LIVE_REGION_POLITE : ACCESSIBILITY_LIVE_REGION_NONE);
         text.setText(shown);
     }

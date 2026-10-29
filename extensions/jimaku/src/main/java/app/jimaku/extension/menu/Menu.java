@@ -56,9 +56,6 @@ public final class Menu {
         /** Settings opened or closed: the captions show their outline and grip, or a sample, while it is open. */
         void settingsShown(boolean shown);
 
-        /** Original caption was switched on: its lines are wanted. */
-        void originalWanted();
-
         /** Whether the app shows its dark theme, or null where it can't say. */
         Boolean darkTheme();
 
@@ -186,8 +183,8 @@ public final class Menu {
 
         rows.add(Rows.toggle(context, theme, Icons.DUAL, Wording.t(Wording.MENU_ORIGINAL), look.dual(), main.original, () -> {
             if (!MenuModel.originalAvailable(host.input())) return;
+            // The settings' change tells the player, which reads the original or drops it.
             look.setDual(!look.dual());
-            if (look.dual()) host.originalWanted();
             refresh();
         }));
         rows.add(Rows.submenu(context, theme, Icons.TUNE, Wording.t(Wording.MENU_SETTINGS), this::openSettings));
@@ -262,15 +259,14 @@ public final class Menu {
     private void act(LanguageRow row) {
         asking = null;
         Subtitle subtitle = row.subtitle();
+        // Showing and hiding also say whether subtitles stay on for the next video.
         switch (row.press) {
             case SHOW -> {
                 host.show(subtitle);
-                look.setOn(true);
                 refresh();
             }
             case HIDE -> {
                 host.hide();
-                look.setOn(false);
                 refresh();
             }
             // Uploaded captions are never made or stopped: their rows show and hide.
