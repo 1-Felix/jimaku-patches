@@ -1,36 +1,20 @@
 # Jimaku patches
 
-[Jimaku](https://www.jimaku.app) subtitles in the YouTube Android app, as a patch bundle for use with Morphe.
-
-## About
-
-Jimaku makes subtitles for YouTube videos and translates them into your language. This bundle shows them over the YouTube app's player, in the app's language, for videos Jimaku already has subtitles for.
-
-It shows subtitles from Jimaku's cache, with Jimaku's menu and settings in the player, and makes Standard subtitles for free from the video's YouTube captions. Signed in, Premium subtitles are made from the video's speech with your Premium minutes, which you can buy in the menu's Account.
-
-### How to use these patches
-
-The Jimaku patch adds only Jimaku. Apply it together with Morphe's YouTube patches, in one run. The steps are also on [www.jimaku.app/android](https://www.jimaku.app/android).
-
-1. In Morphe Manager, add this source with the button below, or add the repository link by hand: https://github.com/1-Felix/jimaku-patches
-2. Turn on **Expert mode** in Manager's settings. Simple mode patches each app from one source only.
-3. Patch YouTube with both sources selected: Morphe's patches and Jimaku. Use a YouTube version listed below, and keep Morphe's default patches on: Jimaku attaches to the player through them. If they are missing, patching stops with a message saying so.
-
-New versions come out as pre-releases first. To try them, turn on **Pre-release patches** for this source in Manager.
+[Jimaku](https://www.jimaku.app) subtitles in the YouTube app on Android, as a patch bundle for Morphe.
 
 <a href="https://morphe.software/add-source?github=1-Felix/jimaku-patches">
   <img src=".github/assets/add-to-morphe.svg" alt="Add to Morphe" height="48">
 </a>
 
-### Signed releases
+## How to use
 
-Every release is signed with this bundle's own key, whose public half is [morphe-signing.pub](morphe-signing.pub). Once you have added the source, Morphe Manager refuses a release that wasn't signed with it. If the key ever has to change, the release notes say so, and Manager asks you to confirm the new key.
+1. Install [Morphe Manager](https://morphe.software).
+2. Tap **Add to Morphe** above.
+3. Turn on **Expert mode** in Manager's settings.
+4. Patch YouTube with Morphe's patches and Jimaku together.
+5. Open a video and tap Jimaku's button.
 
-### What the patch sends
-
-To find subtitles, the app asks `api.jimaku.app` for the video's ID and your language. Requests carry no YouTube account data, no cookies and no credentials. Their User-Agent names only Jimaku and the bundle's version.
-
-To make subtitles and keep your minutes, the app registers an anonymous install with `api.jimaku.app` and sends its secret with those requests only. Signing in happens on www.jimaku.app in your browser, with Google: the app opens the page with a one-time code for its install, and no Google token passes through the app. Buying minutes happens on Stripe's page in your browser.
+What the app sends: [privacy policy](https://www.jimaku.app/privacy).
 
 ## 🩹 Patches list
 
@@ -55,12 +39,6 @@ To make subtitles and keep your minutes, the app registers an anonymous install 
 
 <!-- PATCHES_END -->
 
-### 🛠️ Building locally
-
-- Morphe's build plugin comes from GitHub Packages, so Gradle needs a GitHub token with `read:packages`, passed as `GITHUB_ACTOR` and `GITHUB_TOKEN`.
-- Run `./gradlew buildAndroid`.
-- The built patches file is `patches/build/libs/patches-*.mpp`. Apply it with [Morphe Desktop](https://github.com/MorpheApp/morphe-desktop), or add it to Morphe Manager as a local source, together with Morphe's YouTube patches.
-
 ## 📜 License
 
-Jimaku patches are licensed under the [GNU General Public License v3.0](LICENSE), with the additional terms in [NOTICE](NOTICE). They are built from the [Morphe patches template](https://github.com/MorpheApp/morphe-patches-template) and are not made by the Morphe project.
+[GPL-3.0](LICENSE) with the terms in [NOTICE](NOTICE). Built from the [Morphe patches template](https://github.com/MorpheApp/morphe-patches-template); not made by the Morphe project.
