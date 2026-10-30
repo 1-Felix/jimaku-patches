@@ -1,4 +1,5 @@
 import copy
+import re
 import unittest
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from morphe import (
 
 ROOT = Path(__file__).resolve().parents[2]
 CONSTANTS = ROOT / "patches/src/main/kotlin/app/jimaku/patches/shared/Constants.kt"
+# Constants.kt as Jimaku v1.0.1 shipped it, following Morphe v2.0.0 (V2_TARGETS below).
+FOLLOWED_V2 = Path(__file__).resolve().parent / "test-data/Constants-v1.0.1.kt"
 
 SIGNATURES = [
     "5aad2bee6db95d17e05a08d7d1e64c10a1511879154483916b6ae6c7fd9cb0c6",
@@ -109,7 +112,7 @@ class TargetsTest(unittest.TestCase):
 
 class ConstantsTest(unittest.TestCase):
     def setUp(self):
-        self.constants = CONSTANTS.read_text(encoding="utf-8")
+        self.constants = FOLLOWED_V2.read_text(encoding="utf-8")
         self.entry = youtube_entry(patches_list(V2_TARGETS))
 
     def test_rewrite_is_identity_for_followed_release(self):
@@ -145,6 +148,25 @@ class ConstantsTest(unittest.TestCase):
         rewritten = rewrite_constants(self.constants, entry, current_line(entry))
         self.assertIn("apkFileType = ApkFileType.APK_OR_BUNDLE,", rewritten)
         self.assertIn("appIconColor = 0x00AA11,", rewritten)
+
+
+class LiveConstantsTest(unittest.TestCase):
+    """The live Constants.kt changes with every follow; it must stay rewritable without pinning its values."""
+
+    def test_live_constants_round_trip(self):
+        kotlin = CONSTANTS.read_text(encoding="utf-8")
+        targets = [
+            {"version": version, "isExperimental": False, "minSdk": int(min_sdk)}
+            for version, min_sdk in re.findall(r'version = "([^"]+)",\s*minSdk = (\d+),', kotlin)
+        ]
+        self.assertTrue(targets)
+        entry = {
+            "apkFileType": re.search(r"apkFileType = ApkFileType\.(\w+)", kotlin).group(1),
+            "appIconColor": "#" + re.search(r"appIconColor = 0x([0-9A-Fa-f]+)", kotlin).group(1),
+            "signatures": re.findall(r'"([0-9a-f]{64})"', kotlin),
+            "targets": targets,
+        }
+        self.assertEqual(rewrite_constants(kotlin, entry, targets), kotlin)
 
 
 class LibrariesTest(unittest.TestCase):
