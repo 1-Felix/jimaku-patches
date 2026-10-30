@@ -1,8 +1,10 @@
 import copy
 import re
 import unittest
+from unittest import mock
 from pathlib import Path
 
+import morphe
 from morphe import (
     PATCHER,
     PLUGIN,
@@ -193,6 +195,38 @@ class LibrariesTest(unittest.TestCase):
         settings = (ROOT / "settings.gradle.kts").read_text(encoding="utf-8")
         self.assertNotEqual(raise_version(toml, PATCHER, "999.0.0"), toml)
         self.assertNotEqual(raise_version(settings, PLUGIN, "999.0.0"), settings)
+
+
+class CheckTest(unittest.TestCase):
+    def check(self, latest, recorded, **kwargs):
+        entry = youtube_entry(patches_list(V2_TARGETS))
+        record = mock.Mock(read_text=mock.Mock(return_value=recorded + "\n"))
+        with mock.patch.object(morphe, "latest_stable_tag", return_value=latest), \
+                mock.patch.object(morphe, "_entry_and_targets", return_value=(entry, current_line(entry))), \
+                mock.patch.object(morphe, "RECORD", record):
+            return morphe.check(**kwargs)
+
+    def test_new_release_is_followed(self):
+        outputs = self.check("v2.1.0", "v2.0.0", tag=None)
+        self.assertEqual((outputs["follow"], outputs["dry_run"], outputs["tag"]), (True, False, "v2.1.0"))
+        self.assertEqual(outputs["targets"], ["21.30.216", "21.28.208", "21.23.492"])
+
+    def test_followed_or_older_release_is_not_followed(self):
+        self.assertFalse(self.check("v2.0.0", "v2.0.0", tag=None)["follow"])
+        self.assertFalse(self.check("v1.49.0", "v2.0.0", tag=None)["follow"])
+
+    def test_given_tag_is_a_dry_run(self):
+        outputs = self.check("v2.0.0", "v2.0.0", tag="v1.48.0")
+        self.assertEqual((outputs["follow"], outputs["dry_run"], outputs["tag"]), (True, True, "v1.48.0"))
+
+    def test_run_off_main_is_a_dry_run(self):
+        # Only main's code may be released: a run from another branch tests, and pushes nothing.
+        outputs = self.check("v2.1.0", "v2.0.0", tag=None, dry_run=True)
+        self.assertEqual((outputs["follow"], outputs["dry_run"]), (True, True))
+
+    def test_run_off_main_tests_the_latest_release_even_when_followed(self):
+        outputs = self.check("v2.0.0", "v2.0.0", tag=None, dry_run=True)
+        self.assertEqual((outputs["follow"], outputs["dry_run"], outputs["tag"]), (True, True, "v2.0.0"))
 
 
 class SubjectTest(unittest.TestCase):

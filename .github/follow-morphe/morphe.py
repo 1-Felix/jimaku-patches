@@ -146,9 +146,9 @@ def _entry_and_targets(tag: str):
     return entry, current_line(entry)
 
 
-def check(tag) -> dict:
-    """Whether to follow a Morphe release; a tag given by hand is a dry run that never pushes."""
-    dry_run = tag is not None
+def check(tag, dry_run=False) -> dict:
+    """Whether to follow a Morphe release; a tag given by hand, or a run off main, is a dry run that never pushes."""
+    dry_run = dry_run or tag is not None
     tag = tag or latest_stable_tag()
     follow = dry_run or is_newer(tag, RECORD.read_text(encoding="utf-8").strip())
     outputs = {"follow": follow, "dry_run": dry_run, "tag": tag, "targets": [], "signatures": []}
@@ -201,10 +201,11 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     check_command = commands.add_parser("check", help="print whether to follow, as GITHUB_OUTPUT lines")
     check_command.add_argument("--tag", help="a Morphe tag to test by hand (a dry run)")
+    check_command.add_argument("--dry-run", action="store_true", help="test, and push nothing")
     update_command = commands.add_parser("update", help="rewrite Jimaku's files for a Morphe tag")
     update_command.add_argument("--tag", required=True)
     args = parser.parse_args()
-    _print_outputs(check(args.tag) if args.command == "check" else update(args.tag))
+    _print_outputs(check(args.tag, args.dry_run) if args.command == "check" else update(args.tag))
 
 
 if __name__ == "__main__":
