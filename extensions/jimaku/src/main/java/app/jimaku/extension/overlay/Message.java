@@ -222,6 +222,11 @@ public final class Message extends ViewGroup {
         line(glide);
     }
 
+    /** Whether the chip shows, so the hint can stay out of its way. */
+    public boolean showing() {
+        return chip.getVisibility() == VISIBLE;
+    }
+
     /** Whether it shows work in progress, so the caller knows whether to update it. */
     public boolean showingProgress() {
         return kind == Kind.PROGRESS;

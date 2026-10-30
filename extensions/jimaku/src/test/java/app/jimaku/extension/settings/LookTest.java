@@ -117,4 +117,33 @@ public class LookTest {
         reopened.resetPosition();
         assertFalse(new Look(prefs).moved());
     }
+
+    @Test
+    public void aFreshInstallHasTheHintUntilItIsSeen() {
+        MemoryPrefs prefs = new MemoryPrefs();
+        assertTrue(new Look(prefs).hintPending());
+        // Not seen yet: the next start still has it.
+        Look again = new Look(prefs);
+        assertTrue(again.hintPending());
+        again.hintSeen();
+        assertFalse(again.hintPending());
+        assertFalse(new Look(prefs).hintPending());
+    }
+
+    @Test
+    public void anUpdateHasNoHint() {
+        // A release before the hint kept settings, but no "started".
+        MemoryPrefs prefs = new MemoryPrefs();
+        prefs.values.put("on", true);
+        assertFalse(new Look(prefs).hintPending());
+        assertTrue(prefs.values.containsKey("started"));
+        assertFalse(new Look(prefs).hintPending());
+    }
+
+    @Test
+    public void aSeenHintStaysGoneThoughNothingElseWasKept() {
+        MemoryPrefs prefs = new MemoryPrefs();
+        new Look(prefs).hintSeen();
+        assertFalse(new Look(prefs).hintPending());
+    }
 }

@@ -45,6 +45,7 @@ import app.jimaku.extension.menu.Menu;
 import app.jimaku.extension.menu.MenuInput;
 import app.jimaku.extension.menu.Subtitle;
 import app.jimaku.extension.menu.Version;
+import app.jimaku.extension.overlay.Hint;
 import app.jimaku.extension.overlay.Message;
 import app.jimaku.extension.overlay.PlayerButton;
 import app.jimaku.extension.overlay.SubtitleView;
@@ -81,6 +82,8 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
     private static final String CC_BUTTON = "player_subtitle_button";
     /** YouTube's settings button at the top bar's end, under whose glyph Jimaku's message ends. */
     private static final String OVERFLOW_BUTTON = "player_overflow_button";
+    /** The extension's hint, with the phone's verb: hard-coded, as the extension's wording has "click". */
+    private static final String HINT_WORDS = "Subtitles in %s \u2013 tap here";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final VideoSession session;
@@ -102,6 +105,8 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
     private WeakReference<Activity> activity = new WeakReference<>(null);
     private SubtitleView view;
     private Message message;
+    /** The one-time pointer at Jimaku's button, while the install hasn't seen it. */
+    private Hint hint;
     private ViewGroup overlay;
     private WeakReference<View> controls = new WeakReference<>(null);
     private WeakReference<View> surface = new WeakReference<>(null);
@@ -728,6 +733,42 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
         return Math.round(value * overlay.getResources().getDisplayMetrics().density);
     }
 
+    /**
+     * The hint under Jimaku's button, while the install hasn't seen it: in the full-size watch player
+     * with a video open, where the button shows, and not over a menu or the message. It is as faded as
+     * the controls that hold the button, and leaves with them. Run on each update and before each
+     * frame drawn while it is attached, which is how it follows YouTube's fade.
+     */
+    private void placeHint() {
+        if (hint == null) return;
+        Look settings = look();
+        if (settings == null || !settings.hintPending()) {
+            hint.hide();
+            return;
+        }
+        String type = Morphe.playerType();
+        boolean wanted = !Morphe.lastVideoIsShort() && Morphe.showsSubtitles(type) && session.video() != null
+                && button != null && button.isShown() && button.getWidth() > 0
+                && (menu == null || !menu.isOpen()) && (message == null || !message.showing());
+        float alpha = wanted ? shownAlpha(button) : 0f;
+        if (alpha < 0.05f) {
+            hint.hide();
+            return;
+        }
+        button.getLocationInWindow(otherLocation);
+        hint.getLocationInWindow(viewLocation);
+        int centre = otherLocation[0] - viewLocation[0] + button.getWidth() / 2;
+        int top = otherLocation[1] - viewLocation[1] + button.getHeight() - dp(4);
+        hint.show(String.format(Locale.ROOT, HINT_WORDS, Languages.englishName(preferred())), centre, top, alpha);
+    }
+
+    /** How opaque {@code view} draws: its alpha times each of its parents'. */
+    private static float shownAlpha(View view) {
+        float alpha = 1f;
+        for (Object at = view; at instanceof View shown; at = shown.getParent()) alpha *= shown.getAlpha();
+        return alpha;
+    }
+
     /** Opens the video in the session if it is new in the watch player, then draws or stops. */
     private void update() {
         if (updating) return;
@@ -751,6 +792,7 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
             if (fullSize && (view == null || !view.isAttachedToWindow())) findOverlayInActivity();
             boolean canShow = mayShow && isOnScreen();
             placeMessage(fullSize);
+            placeHint();
             if (preview != null && fullSize) preview.apply(Morphe.context(), message, previewWork);
             if (canShow) draw();
             else if (view != null) {
@@ -890,6 +932,10 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
     }
 
     private void openMenu() {
+        // A press of the button is what the hint asks for: it has been seen, whether or not it showed.
+        Look seen = look();
+        if (seen != null) seen.hintSeen();
+        if (hint != null) hint.hide();
         Activity current = activityOf(button != null ? button.getContext() : null);
         if (current == null || current.isFinishing() || current.isDestroyed()) current = activity.get();
         if (current == null || current.isFinishing() || current.isDestroyed() || look() == null) return;
@@ -975,6 +1021,21 @@ final class Player implements VideoSession.Display, VideoSession.Host, Menu.Host
         if (message.getParent() instanceof ViewGroup oldParent) oldParent.removeView(message);
         // Over the subtitles and YouTube's controls, so its buttons take their touches.
         found.addView(message, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (hint != null && hint.getContext() != found.getContext()) {
+            if (hint.getParent() instanceof ViewGroup oldParent) oldParent.removeView(hint);
+            hint = null;
+        }
+        if (hint == null) {
+            hint = new Hint(found.getContext());
+            hint.setFollow(this::placeHint);
+            hint.setOnClose(() -> {
+                Look seen = look();
+                if (seen != null) seen.hintSeen();
+                if (button != null && button.isShown()) button.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
+            });
+        }
+        if (hint.getParent() instanceof ViewGroup oldParent) oldParent.removeView(hint);
+        found.addView(hint, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         found.addOnLayoutChangeListener(layoutChange);
         overlay = found;
         surfaceSearched = false;

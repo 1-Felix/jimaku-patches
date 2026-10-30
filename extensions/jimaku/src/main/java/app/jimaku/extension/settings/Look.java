@@ -42,6 +42,8 @@ public final class Look {
     /** Where the captions were dropped, as shares of the player's width and height from their own place; NaN at Default. */
     private float positionX;
     private float positionY;
+    /** The one-time hint at Jimaku's button is still to be seen, as the extension's {@code hintPending}. */
+    private boolean hintPending;
 
     public Look(Context context) {
         this(context.getSharedPreferences("jimaku", Context.MODE_PRIVATE));
@@ -49,6 +51,12 @@ public final class Look {
 
     Look(SharedPreferences prefs) {
         this.prefs = prefs;
+        // A fresh install finds Jimaku's file empty, and gets the hint; an update finds what it kept. Every
+        // start leaves "started", so the file never reads as fresh again once the hint has gone.
+        boolean fresh = prefs.getAll().isEmpty();
+        hintPending = fresh || prefs.getBoolean("hint_pending", false);
+        if (fresh) prefs.edit().putBoolean("started", true).putBoolean("hint_pending", true).apply();
+        else if (!prefs.contains("started")) prefs.edit().putBoolean("started", true).apply();
         on = prefs.getBoolean("on", false);
         String flipped = prefs.getString("mode", null);
         mode = "premium".equals(flipped) ? Version.PREMIUM : "standard".equals(flipped) ? Version.STANDARD : null;
@@ -71,6 +79,17 @@ public final class Look {
 
     public void setOnChange(OnChange listener) {
         onChange = listener;
+    }
+
+    public boolean hintPending() {
+        return hintPending;
+    }
+
+    /** The hint was closed, or the button pressed before it: it never shows again on this install. */
+    public void hintSeen() {
+        if (!hintPending) return;
+        hintPending = false;
+        prefs.edit().remove("hint_pending").apply();
     }
 
     public boolean on() {
