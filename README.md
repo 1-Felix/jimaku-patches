@@ -6,16 +6,17 @@
 
 Jimaku makes subtitles for YouTube videos and translates them into your language. This bundle shows them over the YouTube app's player, in the app's language, for videos Jimaku already has subtitles for.
 
-These are early pre-releases. They show subtitles from Jimaku's cache, with Jimaku's menu and settings in the player, and make Standard subtitles for free from the video's YouTube captions. Signed in, Premium subtitles are made from the video's speech with your Premium minutes, which you can buy in the menu's Account.
+It shows subtitles from Jimaku's cache, with Jimaku's menu and settings in the player, and makes Standard subtitles for free from the video's YouTube captions. Signed in, Premium subtitles are made from the video's speech with your Premium minutes, which you can buy in the menu's Account.
 
 ### How to use these patches
 
-The Jimaku patch adds only Jimaku. Apply it together with Morphe's YouTube patches, in one run:
+The Jimaku patch adds only Jimaku. Apply it together with Morphe's YouTube patches, in one run. The steps are also on [www.jimaku.app/android](https://www.jimaku.app/android).
 
 1. In Morphe Manager, add this source with the button below, or add the repository link by hand: https://github.com/1-Felix/jimaku-patches
-2. Turn on **Pre-release patches** for this source. Until the first stable release, every release is a pre-release.
-3. Turn on **Expert mode** in Manager's settings. Simple mode patches each app from one source only.
-4. Patch YouTube with both sources selected: Morphe's patches and Jimaku. Use a YouTube version listed below, and keep Morphe's default patches on: Jimaku attaches to the player through them. If they are missing, patching stops with a message saying so.
+2. Turn on **Expert mode** in Manager's settings. Simple mode patches each app from one source only.
+3. Patch YouTube with both sources selected: Morphe's patches and Jimaku. Use a YouTube version listed below, and keep Morphe's default patches on: Jimaku attaches to the player through them. If they are missing, patching stops with a message saying so.
+
+New versions come out as pre-releases first. To try them, turn on **Pre-release patches** for this source in Manager.
 
 <a href="https://morphe.software/add-source?github=1-Felix/jimaku-patches">
   <img src=".github/assets/add-to-morphe.svg" alt="Add to Morphe" height="48">
