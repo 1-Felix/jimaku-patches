@@ -47,7 +47,7 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event_name == 'push' && 'v1.48.0' || inputs.tag }}
+          TAG: ${{ github.event_name == 'push' && 'v2.0.0' || inputs.tag }}
           # Only main's code is released; a run from another branch tests and pushes nothing.
           ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
