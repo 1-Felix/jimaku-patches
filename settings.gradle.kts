@@ -1,4 +1,4 @@
-rootProject.name = "morphe-patches-template"
+rootProject.name = "jimaku-patches"
 
 pluginManagement {
     repositories {
@@ -19,3 +19,15 @@ pluginManagement {
 plugins {
     id("app.morphe.patches") version "2.1.0-dev.1"
 }
+
+settings {
+    extensions {
+        defaultNamespace = "app.jimaku.extension"
+
+        // Must be an absolute path, or the extension projects don't find it.
+        proguardFiles(settingsDir.resolve("extensions/proguard-rules.pro").toString())
+    }
+}
+
+// Signatures of the Morphe Patches classes the extension calls; compile only, never shipped.
+include(":stub")
