@@ -22,13 +22,23 @@ YOUTUBE = "com.google.android.youtube"
 
 
 class FetchError(Exception):
-    def __init__(self, url, status):
-        super().__init__(f"{url}: " + (f"HTTP {status}" if status else "curl failed"))
+    def __init__(self, url, status, challenge=False):
+        reason = f"HTTP {status}" if status else "curl failed"
+        if challenge:
+            reason += (", a Cloudflare challenge (a bot check), which this workflow does not try to pass;"
+                       " the next run tries again")
+        super().__init__(f"{url}: {reason}")
         self.status = status
+        self.challenge = challenge
 
     @property
     def retryable(self):
-        return self.status is None or self.status >= 500
+        return not self.challenge and (self.status is None or self.status >= 500)
+
+
+def is_challenge(status, body):
+    """Cloudflare's "Just a moment..." page, which only a browser running its script gets past."""
+    return status == 403 and "<title>Just a moment...</title>" in body
 
 
 def with_retries(call, attempts, wait, sleep=time.sleep):
@@ -61,7 +71,8 @@ class Session:
         body, _, code = run.stdout.rpartition("\n")
         print(f"GET {url} -> {code} ({os.path.getsize(out) if out else len(body)} bytes)", flush=True)
         if code != "200":
-            raise FetchError(url, int(code) if code.isdigit() else None)
+            status = int(code) if code.isdigit() else None
+            raise FetchError(url, status, challenge=not out and is_challenge(status, body))
         return body
 
     def get(self, url, referer=BASE, out=None):

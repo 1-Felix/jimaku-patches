@@ -2,7 +2,7 @@ import re
 import unittest
 from pathlib import Path
 
-from apk import FetchError, download, missing_names, with_retries
+from apk import FetchError, download, is_challenge, missing_names, with_retries
 
 ROOT = Path(__file__).resolve().parents[2]
 JAVA = ROOT / "extensions/jimaku/src/main/java"
@@ -93,6 +93,24 @@ class DownloadTest(unittest.TestCase):
         with self.assertRaises(FetchError):
             self.download([403])
         self.assertEqual(len([url for url in self.log if "download.php" in url]), 1)
+
+
+class ChallengeTest(unittest.TestCase):
+    # 2026-10-30 12:39 UTC: every APKMirror page answered 403 with Cloudflare's "Just a moment..." page.
+    CHALLENGE = "<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>cType: 'managed'</body></html>"
+
+    def test_cloudflare_challenge_is_recognised(self):
+        self.assertTrue(is_challenge(403, self.CHALLENGE))
+
+    def test_other_answers_are_not_challenges(self):
+        self.assertFalse(is_challenge(200, self.CHALLENGE))
+        self.assertFalse(is_challenge(403, "<html><title>Forbidden</title></html>"))
+        self.assertFalse(is_challenge(502, ""))
+
+    def test_challenge_is_not_retried_and_says_why(self):
+        error = FetchError("https://www.apkmirror.com/", 403, challenge=True)
+        self.assertFalse(error.retryable)
+        self.assertIn("bot check", str(error))
 
 
 class NamesTest(unittest.TestCase):
