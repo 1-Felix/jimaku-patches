@@ -132,3 +132,6 @@ node_modules/
 # Ignore IDEA files
 .idea/
 local.properties
+
+# Python caches of .github/follow-morphe
+__pycache__/
