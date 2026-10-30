@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0...v1.0.1) (2026-10-30)
+
+### 🚀 Updated App Support
+
+* YouTube 21.30.216, 21.28.208 and 21.23.492, the stable targets of Morphe 2.0.0 ([6fe6ba0](https://github.com/1-Felix/jimaku-patches/commit/6fe6ba022de6632a55d78d25e395901d7519d132))
+
 ## 1.0.0 (2026-10-30)
 
 ### 🐛 Bug Fixes
