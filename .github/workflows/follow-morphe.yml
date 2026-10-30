@@ -11,9 +11,6 @@ on:
       tag:
         description: "A Morphe patches tag to test (a dry run: nothing is pushed)"
         required: false
-  # Temporary, to prove the workflow on its branch.
-  push:
-    branches: [follow-morphe]
 
 concurrency:
   group: follow-morphe
@@ -47,7 +44,7 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event_name == 'push' && 'v2.0.0' || inputs.tag }}
+          TAG: ${{ inputs.tag }}
           # Only main's code is released; a run from another branch tests and pushes nothing.
           ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
@@ -165,6 +162,15 @@ jobs:
           script: bash .github/follow-morphe/smoke.sh work
 
       # Again only when the emulator failed to boot or install; a failed check of Jimaku is final.
+      # 2026-10-30: a corrupt download of the emulator package failed both attempts 20 s apart on one runner,
+      # so the second attempt starts from a clean SDK download cache, a minute later.
+      - name: Clear the SDK download cache
+        if: steps.emulator.outcome == 'failure' && hashFiles('work/jimaku-check-failed') == ''
+        run: |
+          df -h / | tail -1
+          rm -rf "$ANDROID_HOME/.temp" "$ANDROID_HOME/.downloadIntermediates" ~/.android/cache
+          sleep 60
+
       - name: Emulator check, second attempt
         if: steps.emulator.outcome == 'failure' && hashFiles('work/jimaku-check-failed') == ''
         uses: ReactiveCircus/android-emulator-runner@v2.38.0
@@ -199,7 +205,7 @@ jobs:
       # Commit on the newest main: an automatic release carries only the version change, never dev's work.
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.event_name == 'push' && github.ref || 'main' }}
+          ref: main
           fetch-depth: 0
 
       - name: Check main is what was tested
