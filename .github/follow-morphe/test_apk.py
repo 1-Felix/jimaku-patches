@@ -2,7 +2,7 @@ import re
 import unittest
 from pathlib import Path
 
-from apk import FetchError, missing_names, with_retries
+from apk import FetchError, download, missing_names, with_retries
 
 ROOT = Path(__file__).resolve().parents[2]
 JAVA = ROOT / "extensions/jimaku/src/main/java"
@@ -42,6 +42,57 @@ class RetryTest(unittest.TestCase):
         with self.assertRaises(FetchError):
             with_retries(self.failing(99, status=404), attempts=3, wait=20, sleep=self.waits.append)
         self.assertEqual(self.calls, 1)
+
+
+RELEASE_PAGE = (
+    '<div class="table-row headerFont"><div><a href="/apk/google-inc/youtube/youtube-21-20-405-release/'
+    'youtube-21-20-405-4-android-apk-download/">21.20.405</a> <span>APK</span> universal nodpi</div>\n</div>'
+)
+VARIANT_PAGE = '<a href="/apk/google-inc/youtube/youtube-21-20-405-4-android-apk-download/download/?key=k1">Download</a>'
+KEY_PAGE = '<a href="/wp-content/themes/APKMirror/download.php?id=1&amp;key=k2">here</a>'
+
+
+class FakeSession:
+    """APKMirror's pages; the file itself fails with the given statuses, one per session, then succeeds."""
+
+    def __init__(self, log, file_statuses):
+        self.log = log
+        self.file_statuses = file_statuses
+
+    def get(self, url, referer=None, out=None):
+        self.log.append(url)
+        if out:
+            if self.file_statuses:
+                raise FetchError(url, self.file_statuses.pop(0))
+            return ""
+        if "download.php" in url:
+            raise AssertionError("the file is fetched with out")
+        if "/download/?key=" in url:
+            return KEY_PAGE
+        if url.endswith("-apk-download/"):
+            return VARIANT_PAGE
+        return RELEASE_PAGE
+
+
+class DownloadTest(unittest.TestCase):
+    def download(self, file_statuses):
+        self.log, self.waits = [], []
+        download("21.20.405", "out.apk", session=lambda: FakeSession(self.log, file_statuses), sleep=self.waits.append)
+
+    def test_server_error_starts_the_chain_again_for_a_new_key(self):
+        # 2026-10-30: download.php answered 502, and the same link again 403, its key spent.
+        self.download([502])
+        files = [url for url in self.log if "download.php" in url]
+        releases = [url for url in self.log if url.endswith("youtube-21-20-405-release/")]
+        self.assertEqual(len(files), 2)
+        self.assertEqual(len(releases), 2)
+        self.assertTrue(files[0].endswith("download.php?id=1&key=k2"))
+        self.assertEqual(len(self.waits), 1)
+
+    def test_client_error_on_the_file_gives_up(self):
+        with self.assertRaises(FetchError):
+            self.download([403])
+        self.assertEqual(len([url for url in self.log if "download.php" in url]), 1)
 
 
 class NamesTest(unittest.TestCase):

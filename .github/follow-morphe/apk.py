@@ -65,12 +65,19 @@ class Session:
         return body
 
     def get(self, url, referer=BASE, out=None):
-        return with_retries(lambda: self.fetch(url, referer, out), attempts=3, wait=20)
+        return self.fetch(url, referer, out)
 
 
-def download(version, out):
-    """The plain APK (badge APK, arch universal, DPI nodpi) of one YouTube version."""
-    session = Session()
+def download(version, out, session=Session, sleep=time.sleep):
+    """The plain APK (badge APK, arch universal, DPI nodpi) of one YouTube version.
+
+    A server error starts the whole chain again in a new session: the file's link carries a key that one
+    request spends, so the same link asked again answers 403.
+    """
+    with_retries(lambda: _download_once(session(), version, out), attempts=3, wait=30, sleep=sleep)
+
+
+def _download_once(session, version, out):
     release = f"{BASE}/apk/google-inc/youtube/youtube-{version.replace('.', '-')}-release/"
     page = session.get(release)
     variant = None
