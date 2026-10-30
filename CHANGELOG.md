@@ -1,3 +1,9 @@
+## [1.0.0-dev.10](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.9...v1.0.0-dev.10) (2026-10-30)
+
+### ✨ New Features
+
+* a one-time hint points at Jimaku's button on the first video after a fresh install, goes with YouTube's controls, closes with × or the button, and is announced politely to TalkBack ([e36cc05](https://github.com/1-Felix/jimaku-patches/commit/e36cc0591b0ecee69da1a1d6a850f84c0f472672))
+
 ## [1.0.0-dev.9](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.8...v1.0.0-dev.9) (2026-10-29)
 
 ### 🐛 Bug Fixes

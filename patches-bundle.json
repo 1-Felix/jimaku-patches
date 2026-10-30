@@ -1,8 +1,8 @@
 {
-  "created_at": "2026-10-29T23:32:21",
-  "description": "## [1.0.0-dev.9](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.8...v1.0.0-dev.9) (2026-10-29)\n\n### 🐛 Bug Fixes\n\n* account reads started before a sign-out or the preview's stand-in are left, a return confirms a payment once, Sign in greys its rows while the code is made, and the browser opens without sending YouTube to picture-in-picture ([26a34c0](https://github.com/1-Felix/jimaku-patches/commit/26a34c089b64d8f80439499598149911fe5fe5d0))",
-  "download_url": "https://github.com/1-Felix/jimaku-patches/releases/download/v1.0.0-dev.9/patches-1.0.0-dev.9.mpp",
+  "created_at": "2026-10-30T09:20:56",
+  "description": "## [1.0.0-dev.10](https://github.com/1-Felix/jimaku-patches/compare/v1.0.0-dev.9...v1.0.0-dev.10) (2026-10-30)\n\n### ✨ New Features\n\n* a one-time hint points at Jimaku's button on the first video after a fresh install, goes with YouTube's controls, closes with × or the button, and is announced politely to TalkBack ([e36cc05](https://github.com/1-Felix/jimaku-patches/commit/e36cc0591b0ecee69da1a1d6a850f84c0f472672))",
+  "download_url": "https://github.com/1-Felix/jimaku-patches/releases/download/v1.0.0-dev.10/patches-1.0.0-dev.10.mpp",
   "signature_download_url": "",
-  "version": "1.0.0-dev.9",
+  "version": "1.0.0-dev.10",
   "public_key": "8kbjQ+ivbhSVkAujdoazWLAP5ND0OI4UjKlZJuAt8z8="
 }
