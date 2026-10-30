@@ -8,11 +8,16 @@ set -u
 W=$1
 VIDEO=S6jjcVNzcdM
 HERE=$(dirname "$0")
+# A second attempt keeps the first one's report, logs and screenshots in attempt-1.
+if [ -f "$W/report.txt" ]; then
+  mkdir -p "$W/attempt-1"
+  mv "$W/report.txt" "$W"/logcat*.txt "$W/shots" "$W/attempt-1/" 2>/dev/null
+fi
 mkdir -p "$W/shots"
-# A second attempt keeps the first one's report beside its own.
-[ -f "$W/report.txt" ] && mv "$W/report.txt" "$W/report-attempt-1.txt"
 report() { echo "$*" | tee -a "$W/report.txt"; }
 fail() { report "FAIL: $*"; exit 1; }
+# A failed check of Jimaku itself, unlike a boot or install failure, is not tried again.
+fail_jimaku() { touch "$W/jimaku-check-failed"; fail "$@"; }
 shot() { adb exec-out screencap -p > "$W/shots/$1.png"; }
 dump() {
   for _ in 1 2 3; do adb shell uiautomator dump /sdcard/u.xml 2>&1 | grep -q dumped && break; sleep 1; done
@@ -81,12 +86,12 @@ grep -i -E "sign in to confirm|not a bot|PlaybackException|LOGIN_REQUIRED|UNPLAY
 report "---"
 
 for line in "Registered with Morphe" "Attached to the player overlay" "Button placed in the top bar"; do
-  logged "$line" || fail "Jimaku never logged \"$line\""
+  logged "$line" || fail_jimaku "Jimaku never logged \"$line\""
 done
 if cat "$W/logcat-first-launch.txt" "$W/logcat.txt" | grep -A2 "FATAL EXCEPTION" | grep -q "Process: $PKG"; then
-  fail "the app crashed (FATAL EXCEPTION in $PKG)"
+  fail_jimaku "the app crashed (FATAL EXCEPTION in $PKG)"
 fi
 if grep -q -E " E Jimaku *:" "$W/logcat-first-launch.txt" "$W/logcat.txt"; then
-  fail "Jimaku logged an error"
+  fail_jimaku "Jimaku logged an error"
 fi
 report "PASS: Jimaku registered, attached and placed its button"

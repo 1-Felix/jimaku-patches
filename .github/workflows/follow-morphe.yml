@@ -48,8 +48,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event_name == 'push' && 'v1.48.0' || inputs.tag }}
+          # Only main's code is released; a run from another branch tests and pushes nothing.
+          ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          python3 .github/follow-morphe/morphe.py check ${TAG:+--tag "$TAG"} | tee -a "$GITHUB_OUTPUT"
+          [ "$ON_MAIN" = true ] || DRY_RUN=--dry-run
+          python3 .github/follow-morphe/morphe.py check ${TAG:+--tag "$TAG"} ${DRY_RUN:-} | tee -a "$GITHUB_OUTPUT"
 
   build:
     needs: check
@@ -161,8 +164,9 @@ jobs:
           disable-animations: true
           script: bash .github/follow-morphe/smoke.sh work
 
+      # Again only when the emulator failed to boot or install; a failed check of Jimaku is final.
       - name: Emulator check, second attempt
-        if: steps.emulator.outcome == 'failure'
+        if: steps.emulator.outcome == 'failure' && hashFiles('work/jimaku-check-failed') == ''
         uses: ReactiveCircus/android-emulator-runner@v2.38.0
         with: *emulator
 
@@ -177,12 +181,13 @@ jobs:
             work/patch.log
             work/logcat*.txt
             work/shots/
+            work/attempt-1/
 
   release:
     needs: [check, build, test]
     if: needs.check.outputs.follow == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: write
       actions: write
@@ -196,6 +201,14 @@ jobs:
         with:
           ref: ${{ github.event_name == 'push' && github.ref || 'main' }}
           fetch-depth: 0
+
+      - name: Check main is what was tested
+        if: needs.check.outputs.dry_run != 'true'
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "main moved during this run, so what was tested is not what would be released; the next run tests the new main"
+            exit 1
+          fi
 
       - name: Take Morphe's targets
         id: update
@@ -222,7 +235,16 @@ jobs:
             exit 0
           fi
           git push origin HEAD:main
-          if [ "$CHANGED" = "true" ]; then
-            # A push made with GITHUB_TOKEN starts no workflow; a dispatch does.
-            gh workflow run release.yml --ref main
-          fi
+          [ "$CHANGED" = "true" ] || exit 0
+          # A push made with GITHUB_TOKEN starts no workflow; a dispatch does. Its outcome is this run's:
+          # the record is pushed already, so a failed release would otherwise go unseen and never be retried.
+          since=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run release.yml --ref main
+          for _ in $(seq 1 18); do
+            sleep 10
+            id=$(gh run list -w release.yml -e workflow_dispatch -b main -L 5 --json databaseId,createdAt \
+              -q "[.[] | select(.createdAt >= \"$since\")] | last | .databaseId // empty")
+            [ -n "$id" ] && break
+          done
+          [ -n "$id" ] || { echo "The dispatched release run did not show up"; exit 1; }
+          gh run watch "$id" --exit-status --interval 30
