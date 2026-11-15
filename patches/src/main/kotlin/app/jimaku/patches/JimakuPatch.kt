@@ -2,9 +2,10 @@ package app.jimaku.patches
 
 import app.jimaku.patches.shared.Constants.COMPATIBILITY_YOUTUBE
 import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
-import app.morphe.patcher.patch.BytecodePatchContext
 import app.morphe.patcher.patch.PatchException
-import app.morphe.patcher.patch.bytecodePatch
+import app.morphe.patcher.patch.classDefByOrNull
+import app.morphe.patcher.patch.mutableClassDefByOrNull
+import app.morphe.patcher.patch.patch
 import com.android.tools.smali.dexlib2.AccessFlags
 
 /** Registration method of the Jimaku extension, called by Morphe's add-on manager. */
@@ -18,7 +19,7 @@ private const val ADD_ON_MANAGER_CLASS = "Lapp/morphe/extension/youtube/addon/Ad
 private const val ADD_ON_MANAGER_REGISTER = "registerAddOns"
 
 @Suppress("unused")
-val jimakuPatch = bytecodePatch(
+val jimakuPatch = patch(
     name = "Jimaku",
     description = "Shows Jimaku subtitles over the player. Apply together with Morphe's YouTube patches.",
     default = true,
@@ -34,7 +35,7 @@ val jimakuPatch = bytecodePatch(
     }
 }
 
-private fun BytecodePatchContext.registerWithMorphe() {
+private fun registerWithMorphe() {
     val manager = mutableClassDefByOrNull(ADD_ON_MANAGER_CLASS)
         ?: throw PatchException(hostIncompatibleMessage(listOf("app.morphe.extension.youtube.addon.AddOnManager")))
 
