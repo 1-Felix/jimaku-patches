@@ -1,3 +1,9 @@
+## [1.0.3](https://github.com/1-Felix/jimaku-patches/compare/v1.0.2...v1.0.3) (2026-11-16)
+
+### 🚀 Updated App Support
+
+* build with Morphe v2.3.0's patcher ([5b43c4c](https://github.com/1-Felix/jimaku-patches/commit/5b43c4c18c58ad3f62cf34e38d990bf6b5f0f197))
+
 ## [1.0.2](https://github.com/1-Felix/jimaku-patches/compare/v1.0.1...v1.0.2) (2026-11-15)
 
 ### 🚀 Updated App Support
